@@ -3,12 +3,14 @@ package mr
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 import "log"
 import "net/rpc"
@@ -19,6 +21,8 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+const PREFIX = ""
 
 type ByKey []KeyValue
 
@@ -44,6 +48,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	ok := call("Coordinator.ReduceNum", &args1, &reply1)
 	if !ok {
 		fmt.Printf("call reducenum error")
+		return
 	}
 	nReduce = reply1.ReduceNum
 
@@ -54,12 +59,14 @@ func Worker(mapf func(string, string) []KeyValue,
 	ok = call("Coordinator.Asktask", &args, &reply)
 	if !ok {
 		fmt.Printf("call failed!\n")
+		return
 	}
-	fmt.Printf("asktast reply task = %v", reply.Task)
+	fmt.Printf("asktast reply task = %v\n", reply.Task)
+	fmt.Printf("asktast reply startReduce = %v\n", reply.SartReduce)
 
 	if reply.Task != "" {
 		// read file
-		filename := "../main/" + reply.Task
+		filename := reply.Task
 		file, err := os.Open(filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", filename)
@@ -70,66 +77,87 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 		file.Close()
 		kva := mapf(filename, string(content))
+		// write to intermediate files
 
+		buckets := make([][]KeyValue, nReduce)
 		for i := 0; i < nReduce; i++ {
-			intermediateFile_ := "mr-" + strings.Replace(reply.Task[:len(reply.Task)-4], "-", "-", -1) + "-" + strconv.Itoa(i)
-			_, err := os.Create(intermediateFile_)
-			if err != nil {
-				fmt.Println("os create file error")
-				return
-			}
+			buckets[i] = []KeyValue{}
+		}
+		for _, kv := range kva {
+			buckets[ihash(kv.Key)%nReduce] = append(buckets[ihash(kv.Key)%nReduce], kv)
 		}
 
-		// write to intermediate files
-		for _, kv := range kva {
-			reduceNum := ihash(kv.Key)
-			intermediateFile_ := "mr-" + strings.Replace(reply.Task[:len(reply.Task)-4], "-", "-", -1) + "-" + strconv.Itoa(reduceNum)
-			file, err = os.Open(intermediateFile_)
-			enc := json.NewEncoder(file)
-			err := enc.Encode(&kv)
-			if err != nil {
-				fmt.Printf("encode failed!\n")
+		for i, bucket := range buckets {
+			oname := "mr-" + strings.Replace(reply.Task[3:(len(reply.Task)-4)], "-", "_", -1) + "-" + strconv.Itoa(i)
+			ofile, _ := os.CreateTemp("", oname)
+			enc := json.NewEncoder(ofile)
+			for _, kv := range bucket {
+				if err := enc.Encode(&kv); err != nil {
+					log.Fatalf("cannot write %v", oname)
+				}
 			}
-			file.Close()
+			os.Rename(ofile.Name(), oname)
 		}
 
 		// send func map success message
+		mapSuccessArgs := MapSuccessArgs{}
+		mapSuccessArgs.Task = reply.Task
+		mapSuccessReply := MapSuccessReply{}
+		ok = call("Coordinator.MapSuccess", &mapSuccessArgs, &mapSuccessReply)
 	} else if reply.SartReduce {
 		// start to reduce
 		args2 := AskReduceArgs{}
 		reply2 := AskReduceReply{}
 		reply2.ReduceNum = -1
 		ok := call("Coordinator.AskReduce", &args2, &reply2)
+		fmt.Printf("call AskReduce return reducenum %v\n", reply2.ReduceNum)
 		if !ok {
 			fmt.Printf("ask reduce error")
-		}
-		if reply2.ReduceNum < 0 {
 			return
 		}
-
+		if reply2.ReduceNum < 0 {
+			time.Sleep(1 * time.Second)
+			Worker(mapf, reducef)
+			return
+		}
+		reply2.ReduceNum -= 1
 		reduceNum := reply2.ReduceNum
-		dir := "."
+		fmt.Printf("accept reduce task %v\n", reduceNum)
+		dir := "./"
 		suffix := strconv.Itoa(reduceNum)
-		var kva []KeyValue
+		kva := []KeyValue{}
 		intermediate := []KeyValue{}
+		var countA = 0
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() && strings.HasSuffix(path, suffix) {
-				file, _ := os.Open(path)
+				file, err := os.Open(path)
+				defer file.Close()
+				if err != nil {
+					fmt.Printf("os.Open(path) error\n")
+				}
 				dec := json.NewDecoder(file)
 				for {
 					var kv KeyValue
 					if err := dec.Decode(&kv); err != nil {
+						if err == io.EOF {
+							break
+						}
+						fmt.Printf("dec.Decode(&kv) error\n")
 						break
+					}
+					if kv.Key == "A" {
+						countA++
 					}
 					kva = append(kva, kv)
 				}
-				intermediate = append(intermediate, kva...)
 			}
 			return nil
 		})
+		intermediate = append(intermediate, kva...)
+		fmt.Println("reduce countA = ", countA)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -137,7 +165,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		sort.Sort(ByKey(intermediate))
 
 		oname := "mr-out-" + strconv.Itoa(reduceNum)
-		ofile, _ := os.Create(oname)
+		ofile, _ := os.CreateTemp("", oname)
 		i := 0
 		for i < len(intermediate) {
 			j := i + 1
@@ -152,17 +180,22 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			// this is the correct format for each line of Reduce output.
 			fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
-
 			i = j
 		}
 
-		ofile.Close()
+		os.Rename(ofile.Name(), oname)
 		//send reduce success message
+		reduceSuccessArgs := ReduceSuccessArgs{}
+		reduceSuccessReply := ReduceSuccessReply{}
+		reduceSuccessArgs.ReduceNum = reply2.ReduceNum
+		ok = call("Coordinator.ReduceSuccess", &reduceSuccessArgs, &reduceSuccessReply)
+
 	} else {
 		//wait for a period of time
+		time.Sleep(1 * time.Second)
 
 	}
-
+	Worker(mapf, reducef)
 }
 
 // example function to show how to make an RPC call to the coordinator.
@@ -200,7 +233,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
+		return false
 		log.Fatal("dialing:", err)
+
 	}
 	defer c.Close()
 

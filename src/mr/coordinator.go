@@ -35,17 +35,42 @@ func (c *Coordinator) ReduceNum(args *AskReduceNumArgs, reply *AskReduceNumReply
 	return nil
 }
 
-func (c *Coordinator) AskReduce(args *AskReduceNumArgs, reply *AskReduceNumReply) error {
-	if c.reduceIndex == c.nReduce {
-		return nil
+func (c *Coordinator) AskReduce(args *AskReduceArgs, reply *AskReduceReply) error {
+	fmt.Println("coordinator AskReduce called")
+	fmt.Println("c.reduceIndex = ", c.reduceIndex)
+
+	if c.reduceIndex < c.nReduce {
+		reply.ReduceNum = c.reduceIndex + 1
+		fmt.Println("reply.ReduceNum : ", reply.ReduceNum)
+		c.map1[c.reduceIndex] = false
+		i := c.reduceIndex
+		go c.waitWorker(i)
+		c.reduceIndex++
+	} else if len(c.map1) > 0 {
+		key := -1
+		for k, v := range c.map1 {
+			if v {
+				key = k
+				break
+			}
+		}
+		if key >= 0 {
+			reply.ReduceNum = key
+			c.map1[key] = false
+			i := key
+			go c.waitWorker(i)
+		}
 	}
-	reply.ReduceNum = c.reduceIndex
-	c.reduceIndex++
+
 	return nil
 }
 
 func (c *Coordinator) Asktask(args *AskTaskArgs, reply *AskTaskReply) error {
 	fmt.Println("Coordinator asktast excuted")
+	for key, value := range c.map1 {
+		fmt.Printf("Key: %s, Value: %d\n", key, value)
+	}
+	fmt.Println()
 	if c.reducePhase {
 		reply.SartReduce = true
 		return nil
@@ -65,15 +90,33 @@ func (c *Coordinator) Asktask(args *AskTaskArgs, reply *AskTaskReply) error {
 				break
 			}
 		}
-		reply.Task = c.files[key]
-		c.map1[c.mapIndex] = false
-		i := c.mapIndex
-		go c.waitWorker(i)
+		if key >= 0 {
+			reply.Task = c.files[key]
+			c.map1[key] = false
+			i := key
+			go c.waitWorker(i)
+		}
 	} else {
 		c.reducePhase = true
 		reply.SartReduce = true
 	}
 
+	return nil
+}
+
+func (c *Coordinator) MapSuccess(args *MapSuccessArgs, reply *MapSuccessReply) error {
+	var i int
+	for i = 0; i < len(c.files); i++ {
+		if c.files[i] == args.Task {
+			break
+		}
+	}
+	delete(c.map1, i)
+	return nil
+}
+
+func (c *Coordinator) ReduceSuccess(args *ReduceSuccessArgs, reply *ReduceSuccessReply) error {
+	delete(c.map1, args.ReduceNum)
 	return nil
 }
 
@@ -105,8 +148,10 @@ func (c *Coordinator) waitWorker(mapId int) {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := false
-	return ret
+	if c.reducePhase && c.reduceIndex == c.nReduce && len(c.map1) == 0 {
+		return true
+	}
+	return false
 }
 
 // create a Coordinator.
@@ -119,6 +164,7 @@ func MakeCoordinator(files_ []string, nReduce int) *Coordinator {
 	c.files = files_
 	c.reducePhase = false
 	c.nReduce = nReduce
+	c.map1 = make(map[int]bool)
 	c.server()
 	return &c
 }

@@ -45,6 +45,20 @@ type AskReduceReply struct {
 	ReduceNum int
 }
 
+type MapSuccessArgs struct {
+	Task string
+}
+
+type MapSuccessReply struct {
+}
+
+type ReduceSuccessArgs struct {
+	ReduceNum int
+}
+
+type ReduceSuccessReply struct {
+}
+
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
 // Can't use the current directory since
