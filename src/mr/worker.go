@@ -47,7 +47,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	reply1 := AskReduceNumReply{}
 	ok := call("Coordinator.ReduceNum", &args1, &reply1)
 	if !ok {
-		fmt.Printf("call reducenum error")
+		//fmt.Printf("call reducenum error")
 		return
 	}
 	nReduce = reply1.ReduceNum
@@ -58,11 +58,11 @@ func Worker(mapf func(string, string) []KeyValue,
 	reply.SartReduce = false
 	ok = call("Coordinator.Asktask", &args, &reply)
 	if !ok {
-		fmt.Printf("call failed!\n")
+		//fmt.Printf("call failed!\n")
 		return
 	}
-	fmt.Printf("asktast reply task = %v\n", reply.Task)
-	fmt.Printf("asktast reply startReduce = %v\n", reply.SartReduce)
+	//fmt.Printf("asktast reply task = %v\n", reply.Task)
+	//fmt.Printf("asktast reply startReduce = %v\n", reply.SartReduce)
 
 	if reply.Task != "" {
 		// read file
@@ -110,9 +110,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		reply2 := AskReduceReply{}
 		reply2.ReduceNum = -1
 		ok := call("Coordinator.AskReduce", &args2, &reply2)
-		fmt.Printf("call AskReduce return reducenum %v\n", reply2.ReduceNum)
+		//fmt.Printf("call AskReduce return reducenum %v\n", reply2.ReduceNum)
 		if !ok {
-			fmt.Printf("ask reduce error")
+			//fmt.Printf("ask reduce error")
 			return
 		}
 		if reply2.ReduceNum < 0 {
@@ -122,7 +122,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 		reply2.ReduceNum -= 1
 		reduceNum := reply2.ReduceNum
-		fmt.Printf("accept reduce task %v\n", reduceNum)
+		//fmt.Printf("accept reduce task %v\n", reduceNum)
 		dir := "./"
 		suffix := strconv.Itoa(reduceNum)
 		kva := []KeyValue{}
@@ -136,7 +136,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				file, err := os.Open(path)
 				defer file.Close()
 				if err != nil {
-					fmt.Printf("os.Open(path) error\n")
+					//fmt.Printf("os.Open(path) error\n")
 				}
 				dec := json.NewDecoder(file)
 				for {
@@ -145,7 +145,7 @@ func Worker(mapf func(string, string) []KeyValue,
 						if err == io.EOF {
 							break
 						}
-						fmt.Printf("dec.Decode(&kv) error\n")
+						//fmt.Printf("dec.Decode(&kv) error\n")
 						break
 					}
 					if kv.Key == "A" {
@@ -157,9 +157,9 @@ func Worker(mapf func(string, string) []KeyValue,
 			return nil
 		})
 		intermediate = append(intermediate, kva...)
-		fmt.Println("reduce countA = ", countA)
+		//fmt.Println("reduce countA = ", countA)
 		if err != nil {
-			fmt.Println(err)
+			//fmt.Println(err)
 		}
 
 		sort.Sort(ByKey(intermediate))

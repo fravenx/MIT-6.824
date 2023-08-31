@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"time"
 )
@@ -25,7 +24,7 @@ type Coordinator struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	fmt.Println("Coordinator Example excuted")
+	//fmt.Println("Coordinator Example excuted")
 	reply.Y = args.X + 1
 	return nil
 }
@@ -36,12 +35,12 @@ func (c *Coordinator) ReduceNum(args *AskReduceNumArgs, reply *AskReduceNumReply
 }
 
 func (c *Coordinator) AskReduce(args *AskReduceArgs, reply *AskReduceReply) error {
-	fmt.Println("coordinator AskReduce called")
-	fmt.Println("c.reduceIndex = ", c.reduceIndex)
+	//fmt.Println("coordinator AskReduce called")
+	//fmt.Println("c.reduceIndex = ", c.reduceIndex)
 
 	if c.reduceIndex < c.nReduce {
 		reply.ReduceNum = c.reduceIndex + 1
-		fmt.Println("reply.ReduceNum : ", reply.ReduceNum)
+		//fmt.Println("reply.ReduceNum : ", reply.ReduceNum)
 		c.map1[c.reduceIndex] = false
 		i := c.reduceIndex
 		go c.waitWorker(i)
@@ -55,7 +54,7 @@ func (c *Coordinator) AskReduce(args *AskReduceArgs, reply *AskReduceReply) erro
 			}
 		}
 		if key >= 0 {
-			reply.ReduceNum = key
+			reply.ReduceNum = key + 1
 			c.map1[key] = false
 			i := key
 			go c.waitWorker(i)
@@ -66,11 +65,11 @@ func (c *Coordinator) AskReduce(args *AskReduceArgs, reply *AskReduceReply) erro
 }
 
 func (c *Coordinator) Asktask(args *AskTaskArgs, reply *AskTaskReply) error {
-	fmt.Println("Coordinator asktast excuted")
-	for key, value := range c.map1 {
-		fmt.Printf("Key: %s, Value: %d\n", key, value)
-	}
-	fmt.Println()
+	//fmt.Println("Coordinator asktast excuted")
+	//for key, value := range c.map1 {
+	//	fmt.Println(time.Now(), "Key/Value: ", key, value)
+	//}
+	//fmt.Println()
 	if c.reducePhase {
 		reply.SartReduce = true
 		return nil
@@ -140,7 +139,8 @@ func (c *Coordinator) server() {
 
 func (c *Coordinator) waitWorker(mapId int) {
 	time.Sleep(10 * time.Second)
-	if c.map1[mapId] {
+	_, exists := c.map1[mapId]
+	if exists {
 		c.map1[mapId] = true
 	}
 }
