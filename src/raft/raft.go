@@ -76,11 +76,10 @@ type Raft struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
-	var term int
-	var isleader bool
 	// Your code here (2A).
-	return term, isleader
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.currentTerm, rf.state == LEADER
 }
 
 // save Raft's persistent state to stable storage,
@@ -158,12 +157,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if args.Term < rf.currentTerm {
+		Debug(dVote, "S%d reject to vote", rf.me)
 		reply.VoteGranted = false
 		reply.Term = rf.currentTerm
 		return
 	}
 	// check log TODO
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		Debug(dVote, "S%d vote for %d", rf.me, args.CandidateId)
 		rf.currentTerm = args.Term
 		rf.votedFor = args.CandidateId
 		rf.state = FOLLOWER
@@ -296,6 +297,7 @@ func (rf *Raft) ticker() {
 			rf.votes = make(map[int]bool)
 			rf.votes[rf.me] = true
 			rf.resetElectionTimer()
+			Debug(dVote, "S%d start getting votes", rf.me)
 			for i := 0; i < len(rf.peers) && i != rf.me; i++ {
 				i := i
 				go func() {
@@ -324,6 +326,7 @@ func (rf *Raft) ticker() {
 							rf.votes[i] = true
 						}
 						if len(rf.votes) > len(rf.peers)/2 {
+							Debug(dVote, "S%d become leader", rf.me)
 							rf.state = LEADER
 							rf.setHeartBeatTimer()
 						}
