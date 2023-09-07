@@ -156,16 +156,21 @@ type AppendEntryReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	Debug(dVote, "S%d Term %d gets Requestvote from Candidate %d Term %d", rf.me, rf.currentTerm, args.CandidateId, args.Term)
 	if args.Term < rf.currentTerm {
-		Debug(dVote, "S%d reject to vote", rf.me)
+		Debug(dVote, "S%d reject to vote for S%d", rf.me, args.CandidateId)
 		reply.VoteGranted = false
 		reply.Term = rf.currentTerm
 		return
 	}
 	// check log TODO
-	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
-		Debug(dVote, "S%d vote for %d", rf.me, args.CandidateId)
+	if args.Term > rf.currentTerm {
+		rf.state = FOLLOWER
 		rf.currentTerm = args.Term
+		rf.votedFor = -1
+	}
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		Debug(dVote, "S%d vote for S%d", rf.me, args.CandidateId)
 		rf.votedFor = args.CandidateId
 		rf.state = FOLLOWER
 		reply.Term = rf.currentTerm
@@ -271,10 +276,13 @@ func (rf *Raft) killed() bool {
 }
 
 func (rf *Raft) resetElectionTimer() {
+	Debug(dVote, "S%d reset electionTimer ", rf.me)
+	rf.electionTimer.Stop()
 	rf.electionTimer.Reset(time.Duration(electionTime()) * time.Millisecond)
 }
 
 func (rf *Raft) setHeartBeatTimer() {
+	rf.heartbeatTimer.Stop()
 	rf.heartbeatTimer.Reset((time.Duration(HEARTBEATINTERVAL) * time.Millisecond))
 }
 
@@ -284,48 +292,56 @@ func (rf *Raft) ticker() {
 		// Check if a leader election should be started.
 		select {
 		case <-rf.electionTimer.C:
+			Debug(dVote, "S%d electionTime timeout ", rf.me)
 			rf.mu.Lock()
+			rf.resetElectionTimer()
 			if rf.state == LEADER {
 				rf.mu.Unlock()
-				return
+				break
 			}
 			rf.currentTerm++
 			rf.votedFor = rf.me
 			rf.state = CADIDATE
 			currentTerm := rf.currentTerm
-			rf.mu.Unlock()
 			rf.votes = make(map[int]bool)
 			rf.votes[rf.me] = true
-			rf.resetElectionTimer()
-			Debug(dVote, "S%d start getting votes", rf.me)
-			for i := 0; i < len(rf.peers) && i != rf.me; i++ {
+			rf.mu.Unlock()
+			Debug(dVote, "S%d Term %d starts getting votes ", rf.me, currentTerm)
+			for i := 0; i < len(rf.peers); i++ {
+				if i == rf.me {
+					continue
+				}
 				i := i
 				go func() {
 					args := RequestVoteArgs{}
 					reply := RequestVoteReply{}
 					args.Term = currentTerm
 					args.CandidateId = rf.me
+					Debug(dVote, "S%d sendRequestVote to S%d", rf.me, i)
 					ok := rf.sendRequestVote(i, &args, &reply)
 					if !ok {
 						return
 					}
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
+					if rf.currentTerm < reply.Term {
+						rf.currentTerm = reply.Term
+						rf.state = FOLLOWER
+						rf.votedFor = -1
+						return
+					}
 					if rf.currentTerm != args.Term {
 						return
 					}
 					if reply.VoteGranted == false {
-						if reply.Term > rf.currentTerm {
-							rf.currentTerm = reply.Term
-							rf.state = FOLLOWER
-							rf.votedFor = -1
-						}
+
 					} else {
 						_, exists := rf.votes[i]
+						oldlen := len(rf.votes)
 						if !exists {
 							rf.votes[i] = true
 						}
-						if len(rf.votes) > len(rf.peers)/2 {
+						if oldlen <= len(rf.peers)/2 && len(rf.votes) > len(rf.peers)/2 {
 							Debug(dVote, "S%d become leader", rf.me)
 							rf.state = LEADER
 							rf.setHeartBeatTimer()
@@ -345,12 +361,16 @@ func (rf *Raft) heartbeat() {
 		case <-rf.heartbeatTimer.C:
 			rf.mu.Lock()
 			if rf.state != LEADER {
+				rf.mu.Unlock()
 				return
 			}
+			rf.setHeartBeatTimer()
 			currentTerm := rf.currentTerm
 			rf.mu.Unlock()
-			rf.setHeartBeatTimer()
-			for i := 0; i < len(rf.peers) && i != rf.me; i++ {
+			for i := 0; i < len(rf.peers); i++ {
+				if i == rf.me {
+					continue
+				}
 				i := i
 				go func() {
 					args := AppendEntryArgs{}
@@ -363,15 +383,17 @@ func (rf *Raft) heartbeat() {
 					}
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
+					if reply.Term > rf.currentTerm {
+						rf.currentTerm = reply.Term
+						rf.state = FOLLOWER
+						rf.votedFor = -1
+						return
+					}
 					if rf.currentTerm != args.Term {
 						return
 					}
 					if reply.Success == false {
-						if reply.Term > rf.currentTerm {
-							rf.currentTerm = reply.Term
-							rf.state = FOLLOWER
-							rf.votedFor = -1
-						}
+
 					} else {
 
 					}

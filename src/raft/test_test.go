@@ -67,6 +67,7 @@ func TestReElection2A(t *testing.T) {
 	// disturb the new leader. and the old leader
 	// should switch to follower.
 	cfg.connect(leader1)
+
 	leader2 := cfg.checkOneLeader()
 
 	// if there's no quorum, no new leader should
@@ -97,7 +98,8 @@ func TestManyElections2A(t *testing.T) {
 
 	cfg.begin("Test (2A): multiple elections")
 
-	cfg.checkOneLeader()
+	leader := cfg.checkOneLeader()
+	Debug(dVote, "S%d thinks it is the leader", leader)
 
 	iters := 10
 	for ii := 1; ii < iters; ii++ {
@@ -106,19 +108,29 @@ func TestManyElections2A(t *testing.T) {
 		i2 := rand.Int() % servers
 		i3 := rand.Int() % servers
 		cfg.disconnect(i1)
+		Debug(dVote, "S%d gets disconnected", i1)
 		cfg.disconnect(i2)
+		Debug(dVote, "S%d gets disconnected", i2)
 		cfg.disconnect(i3)
-
+		Debug(dVote, "S%d gets disconnected", i3)
 		// either the current leader should still be alive,
 		// or the remaining four should elect a new one.
-		cfg.checkOneLeader()
+		leader = cfg.checkOneLeader()
+		Debug(dVote, "S%d thinks it is the leader", leader)
 
 		cfg.connect(i1)
+		Debug(dVote, "S%d gets connected", i1)
+
 		cfg.connect(i2)
+		Debug(dVote, "S%d gets connected", i2)
+
 		cfg.connect(i3)
+		Debug(dVote, "S%d gets connected", i3)
+
 	}
 
-	cfg.checkOneLeader()
+	leader = cfg.checkOneLeader()
+	Debug(dVote, "S%d thinks it is the leader", leader)
 
 	cfg.end()
 }

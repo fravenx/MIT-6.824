@@ -1,0 +1,17 @@
+Test (2A): election after network failure ...
+002203 VOTE S1 Term 1 starts getting votes 
+002205 VOTE S1 sendRequestVote to S2
+002204 VOTE S1 sendRequestVote to S0
+002211 VOTE S2 Term 0 gets Requestvote from Candidate 1 Term 1
+002211 VOTE S2 vote for S1
+002211 VOTE S0 Term 0 gets Requestvote from Candidate 1 Term 1
+002211 VOTE S0 vote for S1
+002212 VOTE S1 become leader
+006246 VOTE S0 Term 2 starts getting votes 
+006246 VOTE S0 sendRequestVote to S2
+006246 VOTE S0 sendRequestVote to S1
+006247 VOTE S2 Term 1 gets Requestvote from Candidate 0 Term 2
+006247 VOTE S2 vote for S0
+006248 VOTE S0 become leader
+signal: interrupt
+FAIL	6.5840/raft	64.152s
