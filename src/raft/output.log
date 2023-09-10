@@ -1,17 +1,227 @@
-Test (2A): election after network failure ...
-002203 VOTE S1 Term 1 starts getting votes 
-002205 VOTE S1 sendRequestVote to S2
-002204 VOTE S1 sendRequestVote to S0
-002211 VOTE S2 Term 0 gets Requestvote from Candidate 1 Term 1
-002211 VOTE S2 vote for S1
-002211 VOTE S0 Term 0 gets Requestvote from Candidate 1 Term 1
-002211 VOTE S0 vote for S1
-002212 VOTE S1 become leader
-006246 VOTE S0 Term 2 starts getting votes 
-006246 VOTE S0 sendRequestVote to S2
-006246 VOTE S0 sendRequestVote to S1
-006247 VOTE S2 Term 1 gets Requestvote from Candidate 0 Term 2
-006247 VOTE S2 vote for S0
-006248 VOTE S0 become leader
-signal: interrupt
-FAIL	6.5840/raft	64.152s
+Test (2B): basic agreement ...
+002154 VOTE S0 electionTime timeout 
+002156 VOTE S0 reset electionTimer 
+002156 VOTE S0 Term 1 starts getting votes 
+002156 VOTE S0 sendRequestVote to S2
+002156 VOTE S0 sendRequestVote to S1
+002161 VOTE S1 Term 0 gets Requestvote from Candidate 0 Term 1
+002161 VOTE S1 vote for S0
+002161 VOTE S1 reset electionTimer 
+002161 VOTE S2 Term 0 gets Requestvote from Candidate 0 Term 1
+002161 VOTE S2 vote for S0
+002161 VOTE S2 reset electionTimer 
+002162 VOTE S0 become leader
+002560 LOG1 S0 append log at 1
+003169 TIMR S0 heartbeatTimer elapse
+003170 TIMR S0 state = 1
+003170 TRCE S0 get Lock
+003170 TRCE S0 nextIndex[i] = 1
+[{0 0 0} {1 1 100}]
+0 1
+003170 TRCE S0 rf.getByIndex
+003170 LOG1 S0 sendAppendRpc to S2 with entries size = 1
+003170 TRCE S0 append logs
+003170 TRCE S0 unLock
+003170 TRCE S0 get Lock
+003171 TRCE S0 nextIndex[i] = 1
+[{0 0 0} {1 1 100}]
+0 1
+003171 TRCE S0 rf.getByIndex
+003171 LOG1 S0 sendAppendRpc to S1 with entries size = 1
+003171 TRCE S0 append logs
+003171 TRCE S0 unLock
+003172 VOTE S2 reset electionTimer 
+003172 LOG2 S2 prevLogCheck success
+003172 LOG2 S2 reply.Success = true
+003172 VOTE S1 reset electionTimer 
+003172 LOG2 S1 prevLogCheck success
+003172 LOG2 S1 reply.Success = true
+003173 LOG1 S0 set matchIndex[2] to 1
+0 1
+0 1
+003173 LOG1 S0 update commitIndex to 1
+0 1
+003173 CMIT S0 apply index1
+003173 LOG1 S0 set matchIndex[1] to 1
+0 1
+004180 TIMR S0 heartbeatTimer elapse
+004181 TIMR S0 state = 1
+004181 TRCE S0 get Lock
+004182 TRCE S0 nextIndex[i] = 2
+[{0 0 0} {1 1 100}]
+0 1
+004182 TRCE S0 rf.getByIndex
+004182 TRCE S0 append logs
+004182 TRCE S0 unLock
+004182 TRCE S0 get Lock
+004182 TRCE S0 nextIndex[i] = 2
+[{0 0 0} {1 1 100}]
+0 1
+004183 TRCE S0 rf.getByIndex
+004183 TRCE S0 append logs
+004183 TRCE S0 unLock
+004184 VOTE S2 reset electionTimer 
+0 1
+004184 VOTE S1 reset electionTimer 
+0 1
+004185 LOG2 S1 prevLogCheck success
+004185 LOG2 S1 update commitIndex to 1
+0 1
+004184 LOG2 S2 prevLogCheck success
+004185 LOG2 S2 update commitIndex to 1
+0 1
+004185 CMIT S1 apply index1
+004185 LOG2 S1 reply.Success = true
+004185 CMIT S2 apply index1
+004185 LOG2 S2 reply.Success = true
+004229 LOG1 S0 append log at 2
+004668 VOTE S0 electionTime timeout 
+004668 VOTE S0 reset electionTimer 
+005191 TIMR S0 heartbeatTimer elapse
+005192 TIMR S0 state = 1
+005192 TRCE S0 get Lock
+005192 TRCE S0 nextIndex[i] = 2
+[{0 0 0} {1 1 100} {2 1 200}]
+0 2
+0 1
+005192 TRCE S0 rf.getByIndex
+005192 LOG1 S0 sendAppendRpc to S2 with entries size = 1
+005192 TRCE S0 append logs
+005192 TRCE S0 unLock
+005192 TRCE S0 get Lock
+005192 TRCE S0 nextIndex[i] = 2
+[{0 0 0} {1 1 100} {2 1 200}]
+0 2
+0 1
+005193 TRCE S0 rf.getByIndex
+005193 LOG1 S0 sendAppendRpc to S1 with entries size = 1
+005193 TRCE S0 append logs
+005193 TRCE S0 unLock
+005193 VOTE S2 reset electionTimer 
+0 1
+005194 LOG2 S2 prevLogCheck success
+005194 LOG2 S2 reply.Success = true
+005194 VOTE S1 reset electionTimer 
+0 1
+005194 LOG2 S1 prevLogCheck success
+005194 LOG2 S1 reply.Success = true
+005194 LOG1 S0 set matchIndex[2] to 2
+0 2
+0 2
+005194 LOG1 S0 update commitIndex to 2
+0 2
+005194 CMIT S0 apply index2
+005194 LOG1 S0 set matchIndex[1] to 2
+0 2
+006201 TIMR S0 heartbeatTimer elapse
+006201 TIMR S0 state = 1
+006202 TRCE S0 get Lock
+006202 TRCE S0 nextIndex[i] = 3
+[{0 0 0} {1 1 100} {2 1 200}]
+0 2
+006202 TRCE S0 rf.getByIndex
+006202 TRCE S0 append logs
+006202 TRCE S0 unLock
+006202 TRCE S0 get Lock
+006202 TRCE S0 nextIndex[i] = 3
+[{0 0 0} {1 1 100} {2 1 200}]
+0 2
+006202 TRCE S0 rf.getByIndex
+006203 TRCE S0 append logs
+006203 TRCE S0 unLock
+006203 VOTE S2 reset electionTimer 
+0 2
+006203 LOG2 S2 prevLogCheck success
+006203 LOG2 S2 update commitIndex to 2
+0 2
+006203 CMIT S2 apply index2
+006203 LOG2 S2 reply.Success = true
+006203 VOTE S1 reset electionTimer 
+0 2
+006203 LOG2 S1 prevLogCheck success
+006203 LOG2 S1 update commitIndex to 2
+0 2
+006203 CMIT S1 apply index2
+006203 LOG2 S1 reply.Success = true
+006327 LOG1 S0 append log at 3
+007222 TIMR S0 heartbeatTimer elapse
+007223 TIMR S0 state = 1
+007223 TRCE S0 get Lock
+007224 TRCE S0 nextIndex[i] = 3
+[{0 0 0} {1 1 100} {2 1 200} {3 1 300}]
+0 3
+2 3
+007225 TRCE S0 rf.getByIndex
+007225 LOG1 S0 sendAppendRpc to S1 with entries size = 1
+007225 TRCE S0 append logs
+007225 TRCE S0 unLock
+007225 TRCE S0 get Lock
+007226 TRCE S0 nextIndex[i] = 3
+[{0 0 0} {1 1 100} {2 1 200} {3 1 300}]
+0 3
+2 3
+007226 TRCE S0 rf.getByIndex
+007226 LOG1 S0 sendAppendRpc to S2 with entries size = 1
+007226 TRCE S0 append logs
+007226 TRCE S0 unLock
+007228 VOTE S2 reset electionTimer 
+0 2
+007228 LOG2 S2 prevLogCheck success
+007228 LOG2 S2 reply.Success = true
+007228 VOTE S1 reset electionTimer 
+007228 LOG1 S0 set matchIndex[2] to 3
+0 2
+007229 LOG2 S1 prevLogCheck success
+0 3
+2 3
+007229 LOG2 S1 reply.Success = true
+0 3
+2 3
+007229 LOG1 S0 update commitIndex to 3
+0 3
+2 3
+007229 CMIT S0 apply index3
+007230 LOG1 S0 set matchIndex[1] to 3
+0 3
+2 3
+007589 VOTE S0 electionTime timeout 
+007589 VOTE S0 reset electionTimer 
+008225 TIMR S0 heartbeatTimer elapse
+008225 TIMR S0 state = 1
+008225 TRCE S0 get Lock
+008225 TRCE S0 nextIndex[i] = 4
+[{0 0 0} {1 1 100} {2 1 200} {3 1 300}]
+0 3
+2 3
+008226 TRCE S0 rf.getByIndex
+008226 TRCE S0 append logs
+008226 TRCE S0 unLock
+008226 TRCE S0 get Lock
+008226 TRCE S0 nextIndex[i] = 4
+[{0 0 0} {1 1 100} {2 1 200} {3 1 300}]
+0 3
+2 3
+008227 TRCE S0 rf.getByIndex
+008227 TRCE S0 append logs
+008227 TRCE S0 unLock
+008227 VOTE S2 reset electionTimer 
+0 3
+2 3
+008227 LOG2 S2 prevLogCheck success
+008227 LOG2 S2 update commitIndex to 3
+0 3
+2 3
+008227 CMIT S2 apply index3
+008227 LOG2 S2 reply.Success = true
+008228 VOTE S1 reset electionTimer 
+0 3
+2 3
+008228 LOG2 S1 prevLogCheck success
+008228 LOG2 S1 update commitIndex to 3
+0 3
+2 3
+008228 CMIT S1 apply index3
+008228 LOG2 S1 reply.Success = true
+  ... Passed --   0.8  3   14    3782    3
+PASS
+ok  	6.5840/raft	1.094s
