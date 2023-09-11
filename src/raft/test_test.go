@@ -163,6 +163,8 @@ func TestBasicAgree2B(t *testing.T) {
 func TestRPCBytes2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): RPC byte count")
@@ -195,6 +197,8 @@ func TestRPCBytes2B(t *testing.T) {
 func TestFollowerFailure2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): test progressive failure of followers")
@@ -240,6 +244,8 @@ func TestFollowerFailure2B(t *testing.T) {
 func TestLeaderFailure2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): test failure of leaders")
@@ -281,6 +287,7 @@ func TestLeaderFailure2B(t *testing.T) {
 func TestFailAgree2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): agreement after follower reconnects")
@@ -301,6 +308,7 @@ func TestFailAgree2B(t *testing.T) {
 
 	// re-connect
 	cfg.connect((leader + 1) % servers)
+	Debug(dLog, "S%d reconnect", (leader+1)%servers)
 
 	// the full set of servers should preserve
 	// previous agreements, and be able to agree
@@ -315,6 +323,8 @@ func TestFailAgree2B(t *testing.T) {
 func TestFailNoAgree2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): no agreement if too many followers disconnect")
@@ -366,6 +376,8 @@ func TestFailNoAgree2B(t *testing.T) {
 func TestConcurrentStarts2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): concurrent Start()s")
@@ -467,6 +479,8 @@ loop:
 func TestRejoin2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): rejoin of partitioned leader")
@@ -505,6 +519,8 @@ func TestRejoin2B(t *testing.T) {
 func TestBackup2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): leader backs up quickly over incorrect follower logs")
@@ -577,6 +593,8 @@ func TestBackup2B(t *testing.T) {
 func TestCount2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
+	Debug(dInfo, "make_config complete")
+
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2B): RPC counts aren't too high")
