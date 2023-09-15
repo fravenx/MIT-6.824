@@ -1,13 +1,17 @@
 package main
 
-import "fmt"
+import "sync"
 
 func main() {
-	arr := []int{0, 1, 3, 4}
-	fmt.Println(get(2, arr))
-	fmt.Println(get(-1, arr))
-}
+	mu := sync.Mutex{}
+	mu.Lock()
+	defer mu.Unlock()
+	for i := 0; i < 100; i++ {
+		mu.Unlock()
+		mu.Lock()
+	}
 
+}
 func get(k int, arr []int) (int, bool) {
 	for i, j := 0, len(arr)-1; i < j; {
 		mid := i + j>>1

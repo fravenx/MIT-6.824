@@ -67,5 +67,5 @@ func Debug(topic logTopic, format string, a ...interface{}) {
 }
 
 func electionTime() int {
-	return ELECTIONTIMEOUT + (rand.Int() % 150)
+	return ELECTIONTIMEOUT + (rand.Int() % 200)
 }

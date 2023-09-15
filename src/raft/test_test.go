@@ -863,6 +863,7 @@ func TestFigure82C(t *testing.T) {
 
 		if leader != -1 {
 			cfg.crash1(leader)
+			Debug(dLeader, "S%d crashes", leader)
 			nup -= 1
 		}
 
@@ -880,9 +881,10 @@ func TestFigure82C(t *testing.T) {
 		if cfg.rafts[i] == nil {
 			cfg.start1(i, cfg.applier)
 			cfg.connect(i)
+			Debug(dLeader, "S%d connects", i)
 		}
 	}
-
+	Debug(dTest, "iter finish")
 	cfg.one(rand.Int(), servers, true)
 
 	cfg.end()
@@ -948,6 +950,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 		}
 
 		if leader != -1 && (rand.Int()%1000) < int(RaftElectionTimeout/time.Millisecond)/2 {
+			Debug(dLeader, "S%d crashes", leader)
 			cfg.disconnect(leader)
 			nup -= 1
 		}
@@ -956,6 +959,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 			s := rand.Int() % servers
 			if cfg.connected[s] == false {
 				cfg.connect(s)
+				Debug(dLeader, "S%d connects", s)
 				nup += 1
 			}
 		}
@@ -967,6 +971,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 		}
 	}
 
+	Debug(dTest, "iter finish")
 	cfg.one(rand.Int()%10000, servers, true)
 
 	cfg.end()
