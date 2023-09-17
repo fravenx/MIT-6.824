@@ -1,5 +1,3 @@
-# MIT 6.824 2023 by fengwanjie
-
 ## 实验结果
 
 ### lab1(10次)
@@ -17,6 +15,10 @@
 ### 2C(10000次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2000.20.43.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+
+### 2D(10000次0fail)
+
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-17%2019.34.39.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
 
 
 
@@ -73,9 +75,24 @@
 ### lab2C
 
 1. 2C就没什么好说的了，如果2A和2B设计的比较周到的话，2C就只需要在每次需要持久化的状态改变时调用下persist()函数就行，只不过2C的测试案例相比之前更加苛刻，增加了网络不稳点的情况。我运行10000次出现25次fail，错误内容为apply out of order，查看日志定位出问题在apply实现上，之前apply()都是在commitIndex更新后进行同步调用，违背了只能用一个实例来进行apply操作的原则，修改实现为节点启动后创建一个新的协程applier只用来进行apply操作，使用sync.Cond来同步，在lastApplied < commitIndex时用cond.Wait()来等待。
+
+   
+
 2. 又运行3000次出现了一次错误，情况如下：S0成为leader后添加命令在index187后，给S3的发送的心跳全部丢失，S1,S2,S4都与S0的log同步，S3选举计时器超时尝试成为leader，增加term发送RequestVote请求，S0收到请求后发现网络中有比自己term大的节点，转为follower，但由于日志完整检测，S0不会给S3投票，S0选举计时器超时之后又再次成为leader，但测试函数没有再给S0发送命令，S0中在index187的命令一直没有被复制到S3，最后整个测试运行了10分钟报超时错误，这种情况确实出乎意料，我的心跳是每100ms发一次，选举计时器是700-1000ms，S0给S3发送的至少7次心跳全部丢失，我的解决方法是leader在选举成功后在日志中加一条空命令（加了后2B第一个测试会无法通过）(后续：将选举时间改为800-1000ms，以及增加candidate成为leader后立即发送一次心跳的机制，也可稳定通过10000次，这样的话一套代码可以连续通过lab2所有测试，感觉更有连贯性)
 
+### lab2D
 
+1. 增加的InstallSnapshotRpc应该如何与图2交互？我的思考结果：
+
+   (1) 在Snapshot(Index int, snapshot []byte)中，不必完全按照论文要求截断index之前的所有log（包括index），我的实现是截断index之前所有log（不包括index），这样明显实现更加简单，不然以前的一些代码要重新设计，边界情况也会增多。  
+
+   (2)  什么时候发送InstallSnapshotRpc请求？在leader发送AppendEntriesRpc时出现nextIndex[i] <= rf.lastIncludedIndex情况时，因为nextIndex[i]是节点S[i]期待收到的下条命令乐观估计，rf.lastIncludedIndex是leader已经apply且其之前的log都已被删掉。
+
+   (3)  节点在收到InstallSnapshot的Rpc请求时，若args.Term < rf.currentTerm || args.LastIncludedIndex <= rf.commitIndex则该请求过期，直接丢弃。清空自己的log，写入一条index为args.LastIncludedIndex，term为args.LastIncludedTerm的Entry，command可以不填（这条entry只用于之后的日志添加一致性检查），并置lastapplied=commitIndex = args.LastIncludedIndex,向applych发送snapshot，以及持久化当前最新snapshot和raft_state
+
+   <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2023.16.15.png"  style="zoom:40%;" />
+
+   (4)  leader收到InstallSnapshot请求回复时，在确保rpc发送期间leader状态未改变以及该回复未过期后，更新该节点的nextIndex和matchIndex分别为args.LastIncludedIndex + 1和args.LastIncludedIndex。
 
 
 
