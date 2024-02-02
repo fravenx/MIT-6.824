@@ -4,25 +4,19 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raft"
-	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
-const Debug = false
-
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
-		log.Printf(format, a...)
-	}
-	return
-}
-
-
 type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	IsGet       bool
+	IsPutAppend bool
+	ClientId    int64
+	SeqNo       int64
+	Key         string
+	Value       string
+	PutOrAppend string
 }
 
 type KVServer struct {
@@ -33,17 +27,116 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
-
-	// Your definitions here.
+	table        map[int64]int64
+	data         map[string]string
+	waitCh       map[int64]chan Op
 }
 
-
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	kv.mu.Lock()
+	if args.SeqNo <= kv.table[args.ClientId] {
+		v := kv.data[args.Key]
+		reply.Value = v
+		reply.Err = OK
+		kv.mu.Unlock()
+		return
+	}
+
+	kv.mu.Unlock()
+	command := Op{}
+	command.IsGet = true
+	command.SeqNo = args.SeqNo
+	command.ClientId = args.ClientId
+	command.Key = args.Key
+	_, _, isLeader := kv.rf.Start(command)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		Debug(dTrace, "GET C%d seq %d wrong leader at S%d", args.ClientId, args.SeqNo, kv.me)
+		return
+	}
+
+	kv.mu.Lock()
+	ch := make(chan Op, 1)
+	kv.waitCh[args.ClientId] = ch
+	kv.mu.Unlock()
+
+	select {
+	case op := <-ch:
+		kv.mu.Lock()
+		delete(kv.waitCh, args.ClientId)
+		kv.mu.Unlock()
+		if cmpCommand(op, command) {
+			reply.Value = op.Value
+			reply.Err = OK
+			Debug(dTrace, "GET C%d seq %d return at S%d", args.ClientId, args.SeqNo, kv.me)
+			return
+		} else {
+			reply.Err = ErrWrong
+			Debug(dTrace, "GET C%d seq %d ErrWrong at S%d", args.ClientId, args.SeqNo, kv.me)
+			return
+		}
+	case <-time.After(500 * time.Millisecond):
+		kv.mu.Lock()
+		delete(kv.waitCh, args.ClientId)
+		kv.mu.Unlock()
+		reply.Err = TimeOut
+		Debug(dTrace, "GET C%d seq %d TimeOut at S%d", args.ClientId, args.SeqNo, kv.me)
+		return
+	}
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+	Debug(dTrace, "PUT C%d seq %d arrive at S%d", args.ClientId, args.SeqNo, kv.me)
+	kv.mu.Lock()
+	if args.SeqNo <= kv.table[args.ClientId] {
+		reply.Err = OK
+		Debug(dTrace, "PUT C%d seq %d aready done at S%d", args.ClientId, args.SeqNo, kv.me)
+		kv.mu.Unlock()
+		return
+	}
+
+	kv.mu.Unlock()
+	command := Op{}
+	command.IsPutAppend = true
+	command.SeqNo = args.SeqNo
+	command.ClientId = args.ClientId
+	command.Key = args.Key
+	command.PutOrAppend = args.Op
+	command.Value = args.Value
+
+	_, _, isLeader := kv.rf.Start(command)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	kv.mu.Lock()
+	ch := make(chan Op, 1)
+	kv.waitCh[args.ClientId] = ch
+	kv.mu.Unlock()
+
+	select {
+	case op := <-ch:
+		kv.mu.Lock()
+		delete(kv.waitCh, args.ClientId)
+		kv.mu.Unlock()
+		if cmpCommand(op, command) {
+			Debug(dTrace, "PUT C%d seq %d return at S%d", args.ClientId, args.SeqNo, kv.me)
+			reply.Err = OK
+			return
+		} else {
+			Debug(dTrace, "PUT C%d seq %d wrong at S%d", args.ClientId, args.SeqNo, kv.me)
+			reply.Err = ErrWrong
+			return
+		}
+	case <-time.After(500 * time.Millisecond):
+		kv.mu.Lock()
+		delete(kv.waitCh, args.ClientId)
+		kv.mu.Unlock()
+		Debug(dTrace, "PUT C%d seq %d timeout at S%d", args.ClientId, args.SeqNo, kv.me)
+		reply.Err = TimeOut
+		return
+	}
 }
 
 // the tester calls Kill() when a KVServer instance won't
@@ -63,6 +156,64 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
+}
+
+func (kv *KVServer) isRepeated(clientId, seqNo int64) bool {
+	value, ok := kv.table[clientId]
+	if ok && value >= seqNo {
+		return true
+	}
+	return false
+}
+
+func (kv *KVServer) execute() {
+	for kv.killed() == false {
+		msg := <-kv.applyCh
+		Debug(dTrace, "C%d seq %d execute() at S%d", msg.Command.(Op).ClientId, msg.Command.(Op).SeqNo, kv.me)
+		if msg.CommandValid {
+			op := msg.Command.(Op)
+			kv.mu.Lock()
+			if op.IsGet {
+				clientId := op.ClientId
+				if op.SeqNo > kv.table[clientId] {
+					kv.table[clientId] = op.SeqNo
+				}
+				_, ok := kv.waitCh[clientId]
+				if ok && kv.table[clientId] == op.SeqNo {
+					op.Value = kv.data[op.Key]
+					select {
+					case kv.waitCh[clientId] <- op:
+					default:
+					}
+				}
+			} else {
+				key := op.Key
+				value := op.Value
+				clientId := op.ClientId
+				if kv.isRepeated(op.ClientId, op.SeqNo) {
+					kv.mu.Unlock()
+					continue
+				}
+				Debug(dTrace, "C%d seq %d applied at S%d", op.ClientId, op.SeqNo, kv.me)
+				if op.PutOrAppend == "Put" {
+					kv.data[key] = value
+				} else {
+					kv.data[key] = kv.data[key] + value
+				}
+				kv.table[clientId] = op.SeqNo
+				_, ok := kv.waitCh[clientId]
+				if ok && kv.table[clientId] == op.SeqNo {
+					select {
+					case kv.waitCh[clientId] <- op:
+					default:
+					}
+				}
+			}
+			kv.mu.Unlock()
+		}
+
+	}
+
 }
 
 // servers[] contains the ports of the set of
@@ -92,6 +243,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
-
+	kv.table = make(map[int64]int64)
+	kv.data = make(map[string]string)
+	kv.waitCh = make(map[int64]chan Op)
+	go kv.execute()
 	return kv
 }

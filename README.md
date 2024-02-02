@@ -2,23 +2,27 @@
 
 ### lab1(10次)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2016.14.53.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2016.14.53.png"  style="zoom:30%;" />
 
 ### 2A(2000次0fail)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/%E6%88%AA%E5%B1%8F2023-09-07%2018.24.32.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/%E6%88%AA%E5%B1%8F2023-09-07%2018.24.32.png"  style="zoom:50%;" />
 
 ### 2B(10000次0fail)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-15%2013.38.30.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-15%2013.38.30.png"  style="zoom:50%;" />
 
 ### 2C(10000次0fail)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2000.20.43.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2000.20.43.png"  style="zoom:50%;" />
 
 ### 2D(10000次0fail)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-17%2019.34.39.png" alt="截屏2023-09-07 18.24.32" style="zoom:50%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-17%2019.34.39.png"  style="zoom:50%;" />
+
+### 3A(500次0fail)
+
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3a1.png" style="zoom:50%;" />
 
 
 
@@ -28,7 +32,7 @@
 中当前目录 为"src/main/mr-tmp"，会出现找不到目录的错误。
 2. 在将调用mapf将所有收集到的中间值保存到文件时，可以先在内存中创建nreduce个桶，然后再将这些值先映射入桶中，最后再将这些值存入中间文件。
 
-### lab2A
+### 2A
 
 1. 什么时候重置选举的计时器？  
 
@@ -36,7 +40,7 @@
 
    (2) 节点收到RequestVote的RPC请求时，若给予投票，则重置计时器  
 
-   (3) 节点收到leader有效的heartbeat请求时(arg.Term > rf.term)              
+   (3) 节点收到leader有效的heartbeat请求时              
 
 2. 并发控制，对于互斥锁如何设计？   
 
@@ -50,7 +54,7 @@
 
 4. 节点收到发送的rpc请求回复时，要对比该请求发送时的args.Term是否和节点此时的Term相同，若不相同，该回复已过期。
 
-### lab2B
+### 2B
 
 1. log[]中的Entry会有一个唯一的index且之后不再更改，这个index和log[]切片的index不是相等的，而是一个映射的关系，我为了简单，写了一个二分的方式通过Entry.index找到其在log[]切片中位置。但由于go中运算符优先级有所调整，并不和c++一样，这里我原先没有加括号，导致一个节点死循环。这个错误我找了两三个小时才找到，一开始还以为是这个节点死锁，但是通过打日志发现这个节点在获得到互斥锁之后才停止操作，最终在这段临界区代码中定位到二分代码死循环的问题。
 
@@ -72,19 +76,19 @@
 
    <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2002.28.32.png"  style="zoom:40%;" />
 
-### lab2C
+### 2C
 
 1. 2C就没什么好说的了，如果2A和2B设计的比较周到的话，2C就只需要在每次需要持久化的状态改变时调用下persist()函数就行，只不过2C的测试案例相比之前更加苛刻，增加了网络不稳点的情况。我运行10000次出现25次fail，错误内容为apply out of order，查看日志定位出问题在apply实现上，之前apply()都是在commitIndex更新后进行同步调用，违背了只能用一个实例来进行apply操作的原则，修改实现为节点启动后创建一个新的协程applier只用来进行apply操作，使用sync.Cond来同步，在lastApplied < commitIndex时用cond.Wait()来等待。
 
    
 
-2. 又运行3000次出现了一次错误，情况如下：S0成为leader后添加命令在index187后，给S3的发送的心跳全部丢失，S1,S2,S4都与S0的log同步，S3选举计时器超时尝试成为leader，增加term发送RequestVote请求，S0收到请求后发现网络中有比自己term大的节点，转为follower，但由于日志完整检测，S0不会给S3投票，S0选举计时器超时之后又再次成为leader，但测试函数没有再给S0发送命令，S0中在index187的命令一直没有被复制到S3，最后整个测试运行了10分钟报超时错误，这种情况确实出乎意料，我的心跳是每100ms发一次，选举计时器是700-1000ms，S0给S3发送的至少7次心跳全部丢失，我的解决方法是leader在选举成功后在日志中加一条空命令（加了后2B第一个测试会无法通过）(后续：将选举时间改为800-1000ms，以及增加candidate成为leader后立即发送一次心跳的机制，也可稳定通过10000次，这样的话一套代码可以连续通过lab2所有测试，感觉更有连贯性)
+2. 又运行3000次出现了一次错误，情况如下：S0成为leader后添加命令在index187后，给S3的发送的心跳全部丢失，S1,S2,S4都与S0的log同步，S3选举计时器超时尝试成为leader，增加term发送RequestVote请求，S0收到请求后发现网络中有比自己term大的节点，转为follower，但由于日志完整检测，S0不会给S3投票，S0选举计时器超时之后又再次成为leader，但测试函数没有再给S0发送命令，S0中在index187的命令一直没有被复制到S3，最后整个测试运行了10分钟报超时错误，这种情况确实出乎意料，我的心跳是每100ms发一次，选举计时器是700-1000ms，S0给S3发送的至少7次心跳全部丢失，我的解决方法是增加candidate成为leader后立即发送一次心跳的机制，即可稳定通过10000次。
 
-### lab2D
+### 2D
 
 1. 增加的InstallSnapshotRpc应该如何与图2交互？我的思考结果：
 
-   (1) 在Snapshot(Index int, snapshot []byte)中，不必完全按照论文要求截断index之前的所有log（包括index），我的实现是截断index之前所有log（不包括index），这样明显实现更加简单，不然以前的一些代码要重新设计，边界情况也会增多。  
+   (1) 在Snapshot(Index int, snapshot []byte)中，不必完全按照论文要求截断index之前的所有log（包括index），我的实现是截断index之前所有log（不包括index），这样明显实现更加简单，不然以前的一些代码要重新设计（AppendEntries的RPC请求对比上一条entry检查机制），边界情况也会增多。  
 
    (2)  什么时候发送InstallSnapshotRpc请求？在leader发送AppendEntriesRpc时出现nextIndex[i] <= rf.lastIncludedIndex情况时，因为nextIndex[i]是节点S[i]期待收到的下条命令乐观估计，rf.lastIncludedIndex是leader已经apply且其之前的log都已被删掉。
 
@@ -93,6 +97,18 @@
    <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2023.16.15.png"  style="zoom:40%;" />
 
    (4)  leader收到InstallSnapshot请求回复时，在确保rpc发送期间leader状态未改变以及该回复未过期后，更新该节点的nextIndex和matchIndex分别为args.LastIncludedIndex + 1和args.LastIncludedIndex。
+
+### 3A
+
+1. 在server的RPC处理中，为了等待从appier中出来的命令响应Clerk而设置的chan，一定不要使用默认的无缓冲的chan，而要设置一个缓冲空间为1（一个client只会有一个命令at the moment），由于默认的chan是同步的，server中RPC请求和appier两者阻塞，系统会超时，命令一直无法完成 
+
+   
+
+2. client除了在Err为ErrWrongLeader需要更换leader，在调用RPC请求ok为false时也要更换leader，否则系统会超时，一直无响应。
+
+   
+
+3. client的clientId和seqno要写入Op结构体中，此操作是为了让follower的table能够同步更新，从而保证请求只会被执行一次。
 
 
 
