@@ -157,6 +157,9 @@ func (rf *Raft) readPersist(data []byte) {
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if index <= rf.lastIncludedIndex {
+		return
+	}
 	k, _ := rf.getByIndex(index)
 	rf.lastIncludedTerm = rf.log[k].Term
 	rf.lastIncludedIndex = rf.log[k].Index
@@ -277,10 +280,12 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.resetElectionTimer()
 	needPersist := false
 	if args.Term > rf.currentTerm {
+		needPersist = true
+	}
+	rf.state = FOLLOWER
+	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
-		rf.state = FOLLOWER
-		needPersist = true
 	}
 	reply.Term = rf.currentTerm
 	k, exists := rf.getByIndex(args.PrevLogIndex)
@@ -341,19 +346,19 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if args.Term < rf.currentTerm || args.LastIncludedIndex <= rf.commitIndex {
+	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		return
 	}
-	if args.LastIncludedIndex < rf.lastIncludedIndex {
+	if args.LastIncludedIndex <= rf.lastIncludedIndex || args.LastIncludedIndex <= rf.commitIndex {
 		return
 	}
 
 	rf.resetElectionTimer()
+	rf.state = FOLLOWER
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
-		rf.state = FOLLOWER
 	}
 	reply.Term = rf.currentTerm
 	rf.log = []Entry{{Index: args.LastIncludedIndex, Term: args.LastIncludedTerm}}
@@ -787,16 +792,25 @@ func (rf *Raft) applier() {
 			rf.applyCh <- msg
 			rf.mu.Lock()
 		} else if rf.lastApplied < rf.commitIndex {
-			rf.lastApplied++
-			index, _ := rf.getByIndex(rf.lastApplied)
-			Debug(dCommit, "S%d apply %v", rf.me, rf.log[index])
-			msg := ApplyMsg{
-				CommandIndex: rf.lastApplied,
-				Command:      rf.log[index].Command,
-				CommandValid: true,
+			i := rf.lastApplied + 1
+			j := rf.commitIndex
+			msgs := make([]ApplyMsg, 0)
+			for ; i <= j; i++ {
+				index, _ := rf.getByIndex(i)
+				i := i
+				msg := ApplyMsg{
+					CommandIndex: i,
+					Command:      rf.log[index].Command,
+					CommandValid: true,
+				}
+				msgs = append(msgs, msg)
 			}
+			rf.lastApplied = j
 			rf.mu.Unlock()
-			rf.applyCh <- msg
+			for _, msg := range msgs {
+				Debug(dCommit, "S%d apply %v", rf.me, msg)
+				rf.applyCh <- msg
+			}
 			rf.mu.Lock()
 		} else {
 			rf.applyCond.Wait()

@@ -4,9 +4,11 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raft"
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 type Op struct {
@@ -27,9 +29,11 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
+	persister    *raft.Persister
 	table        map[int64]int64
 	data         map[string]string
 	waitCh       map[int64]chan Op
+	bytes        int
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -169,10 +173,11 @@ func (kv *KVServer) isRepeated(clientId, seqNo int64) bool {
 func (kv *KVServer) execute() {
 	for kv.killed() == false {
 		msg := <-kv.applyCh
-		Debug(dTrace, "C%d seq %d execute() at S%d", msg.Command.(Op).ClientId, msg.Command.(Op).SeqNo, kv.me)
 		if msg.CommandValid {
+			Debug(dTrace, "C%d seq %d execute() at S%d", msg.Command.(Op).ClientId, msg.Command.(Op).SeqNo, kv.me)
 			op := msg.Command.(Op)
 			kv.mu.Lock()
+			kv.bytes += int(unsafe.Sizeof(Op{})) + len(op.Key) + len(op.Key) + len(op.Value) + 8
 			if op.IsGet {
 				clientId := op.ClientId
 				if op.SeqNo > kv.table[clientId] {
@@ -191,6 +196,16 @@ func (kv *KVServer) execute() {
 				value := op.Value
 				clientId := op.ClientId
 				if kv.isRepeated(op.ClientId, op.SeqNo) {
+					if kv.maxraftstate > 0 && kv.persister.RaftStateSize() > kv.maxraftstate && kv.bytes > kv.maxraftstate {
+						snapshot := kv.getSnapshot()
+						kv.bytes = 0
+						kv.mu.Unlock()
+						go func(i int) {
+							kv.rf.Snapshot(i, snapshot)
+						}(msg.CommandIndex)
+						continue
+
+					}
 					kv.mu.Unlock()
 					continue
 				}
@@ -209,11 +224,55 @@ func (kv *KVServer) execute() {
 					}
 				}
 			}
+			if kv.maxraftstate > 0 && kv.persister.RaftStateSize() > kv.maxraftstate && kv.bytes > kv.maxraftstate {
+				snapshot := kv.getSnapshot()
+				kv.bytes = 0
+				kv.mu.Unlock()
+				go func(i int) {
+					kv.rf.Snapshot(i, snapshot)
+				}(msg.CommandIndex)
+				continue
+
+			}
+
+			kv.mu.Unlock()
+
+		} else {
+			kv.mu.Lock()
+			snapshot := msg.Snapshot
+			kv.readSnapshot(snapshot)
 			kv.mu.Unlock()
 		}
 
 	}
 
+}
+
+func (kv *KVServer) getSnapshot() []byte {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(kv.table)
+	e.Encode(kv.data)
+	snapshot := w.Bytes()
+	return snapshot
+}
+
+func (kv *KVServer) readSnapshot(data []byte) {
+	if data == nil || len(data) < 1 {
+		return
+	}
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var table map[int64]int64
+	var data2 map[string]string
+	if d.Decode(&table) != nil ||
+		d.Decode(&data2) != nil {
+		panic("decode err")
+	} else {
+		kv.table = table
+		kv.data = data2
+
+	}
 }
 
 // servers[] contains the ports of the set of
@@ -238,7 +297,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.maxraftstate = maxraftstate
 
 	// You may need initialization code here.
-
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
@@ -246,6 +304,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.table = make(map[int64]int64)
 	kv.data = make(map[string]string)
 	kv.waitCh = make(map[int64]chan Op)
+	kv.persister = persister
+	kv.readSnapshot(persister.ReadSnapshot())
+	kv.bytes = 0
 	go kv.execute()
 	return kv
 }
