@@ -495,12 +495,6 @@ func (rf *Raft) lastLogTerm() int {
 
 }
 
-func (rf *Raft) cloneEntry(entries []Entry) []Entry {
-	cloned := make([]Entry, len(entries))
-	copy(cloned, entries)
-	return cloned
-}
-
 func (rf *Raft) compactTo(index int, term int) {
 	suffix := make([]Entry, 0)
 	suffixStart := index + 1
@@ -860,33 +854,32 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- msg
 			rf.mu.Lock()
-		} else if entries := rf.newCommittedEntries(); len(entries) > 0 {
-			rf.lastApplied = entries[len(entries)-1].Index
-			rf.mu.Unlock()
-			for _, entry := range entries {
-				rf.applyCh <- ApplyMsg{CommandValid: true, Command: entry.Command, CommandIndex: entry.Index}
+		} else if rf.lastApplied < rf.commitIndex {
+			i := rf.lastApplied + 1
+			j := rf.commitIndex
+			msgs := make([]ApplyMsg, 0)
+			for ; i <= j; i++ {
+				index, _ := rf.getByIndex(i)
+				i := i
+				msg := ApplyMsg{
+					CommandIndex: i,
+					Command:      rf.log[index].Command,
+					CommandValid: true,
+				}
+				msgs = append(msgs, msg)
 			}
-
+			rf.lastApplied = j
+			rf.mu.Unlock()
+			for _, msg := range msgs {
+				Debug(dCommit, "S%d apply %v", rf.me, msg)
+				rf.applyCh <- msg
+			}
 			rf.mu.Lock()
 		} else {
 			rf.applyCond.Wait()
 		}
 	}
 
-}
-
-func (rf *Raft) newCommittedEntries() []Entry {
-	i := rf.lastApplied + 1 - rf.log[0].Index
-	j := rf.commitIndex + 1 - rf.log[0].Index
-
-	Debug(dTrace, "rf.lastApplied = %d", rf.lastApplied)
-	Debug(dTrace, "rf.log[0].Index = %d", rf.log[0].Index)
-	Debug(dTrace, "i = %d, j = %d", i, j)
-	if i >= j {
-		return nil
-	}
-
-	return rf.cloneEntry(rf.log[i:j])
 }
 
 // the service or tester wants to create a Raft server. the ports

@@ -24,6 +24,12 @@
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3a1.png" style="zoom:50%;" />
 
+### 3B(500次0fail)
+
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3b.png" style="zoom:50%;" />
+
+
+
 
 
 ## 过程中踩的坑/难点（除了严格遵守论文图2）
@@ -56,23 +62,19 @@
 
 ### 2B
 
-1. log[]中的Entry会有一个唯一的index且之后不再更改，这个index和log[]切片的index不是相等的，而是一个映射的关系，我为了简单，写了一个二分的方式通过Entry.index找到其在log[]切片中位置。但由于go中运算符优先级有所调整，并不和c++一样，这里我原先没有加括号，导致一个节点死循环。这个错误我找了两三个小时才找到，一开始还以为是这个节点死锁，但是通过打日志发现这个节点在获得到互斥锁之后才停止操作，最终在这段临界区代码中定位到二分代码死循环的问题。
-
-   <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/2B1.png"  style="zoom:40%;" />
-
-2. 节点在收到AppendEntry的RPC请求时，要对prevLogIndex和prevLogTerm进行检查，若不匹配，可以优化leader的nextIndex回退的方式。对此，我采取的优化策略是在RPC回复中增加一个FirstIndex的字段。
+1. 节点在收到AppendEntry的RPC请求时，要对prevLogIndex和prevLogTerm进行检查，若不匹配，可以优化leader的nextIndex回退的方式。对此，我采取的优化策略是在RPC回复中增加一个FirstIndex的字段。
 
    (1) 若该follower节点中并不存在prevLogIndex对应的Entry，则置该FirstIndex = -1，leader收到回复后，将该follower对应的nextIndex置为prevLogTerm第一次出现的位置  
 
    (2) 若该follower节点中存在prevLogIndex对应的Entry，但该Entry.Term != prevLogTerm,则在FirstIndex填入follower的log中这个冲突Entry的Term第一次出现的位置，leader收到回复后，置该follower的nextIndex为firstIndex
 
-3. leader只会commit和自己的currentTerm相同term的Entry。因此，我的具体做法是在leader发送AppendEntry的RPC请求时，检查log[]中最后一条entry.term == rf.currentTerm为真时，才会给args.Entries[]字段添加leader中要尝试commit的Entry
+2. leader只会commit和自己的currentTerm相同term的Entry。因此，我的具体做法是在leader发送AppendEntry的RPC请求时，检查log[]中最后一条entry.term == rf.currentTerm为真时，才会给args.Entries[]字段添加leader中要尝试commit的Entry
 
    <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/2B2.png"  style="zoom:40%;" />
 
-4. leader发送AppendEntry的RPC请求收到reply.Success为真后，在更新matchIndex不能直接设置为Len(log[])，而是prevLogIndex + len(entries[])，因为在发送rpc请求后，leader中的log[]长度可能会改变
+3. leader发送AppendEntry的RPC请求收到reply.Success为真后，在更新matchIndex不能直接设置为Len(log[])，而是prevLogIndex + len(entries[])，因为在发送rpc请求后，leader中的log[]长度可能会改变
 
-5. 遇到一个很微妙的bug，发生在系统刚启动时，观察日志发现节点S1刚刚选举计时器到达，紧接着4ms后收到节点S2的RequestVote的请求，按逻辑上应该选举计时器到达后，S1节点成为Candidate，增加自己Term，然后拒绝掉节点S2的RequestVote请求。但实际情况是由于我这里在选举计时器到达时先输出了一条日志，导致有点微小的延时，处理RequestVote的RPC请求逻辑先获得锁，并grant vote，节点S2变成leader，并在log[]中加了一条命令[101]，节点S1的term变成2，然后选举计时器逻辑获得锁，节点S1的term变为3，发送RequestVote请求，节点S2收到后，发现arg.term比自己大，于是变为follower，但由于日志完整性检查，并不会grant vote,由于网络中还有节点S0存在并给S1 grant vote，节点S1成为leader，但由于命令[101]在节点S2中，致使这条命令一直没有被commit,最后fail to reach agreement，这种情况比较少见，较小概率发生，我将选举计时器超时后输出日志的代码放入在获取互斥锁之后应该可以解决。这看似是可行，但是我又跑了2000遍测试出现一次失败，观察日志发现是上述情况没有4ms的延迟，S2的RequestVote请求到达S1和S1选举计时器超时同时发生，这种情况下只有S1选举计时器先抢占到锁才能成功通过测试，但是实际上S1选举计时器若没有抢占到锁，发生和上述同样的问题，难怪实验hint中说time.Timer比较tricky to use，所以最终实现改为time.Time记录上一次心跳时间，用当前时间来比对。
+4. 遇到一个很微妙的bug，发生在系统刚启动时，观察日志发现节点S1刚刚选举计时器到达，紧接着4ms后收到节点S2的RequestVote的请求，按逻辑上应该选举计时器到达后，S1节点成为Candidate，增加自己Term，然后拒绝掉节点S2的RequestVote请求。但实际情况是由于我这里在选举计时器到达时先输出了一条日志，导致有点微小的延时，处理RequestVote的RPC请求逻辑先获得锁，并grant vote，节点S2变成leader，并在log[]中加了一条命令[101]，节点S1的term变成2，然后选举计时器逻辑获得锁，节点S1的term变为3，发送RequestVote请求，节点S2收到后，发现arg.term比自己大，于是变为follower，但由于日志完整性检查，并不会grant vote,由于网络中还有节点S0存在并给S1 grant vote，节点S1成为leader，但由于命令[101]在节点S2中，致使这条命令一直没有被commit,最后fail to reach agreement，这种情况比较少见，较小概率发生，我将选举计时器超时后输出日志的代码放入在获取互斥锁之后应该可以解决。这看似是可行，但是我又跑了2000遍测试出现一次失败，观察日志发现是上述情况没有4ms的延迟，S2的RequestVote请求到达S1和S1选举计时器超时同时发生，这种情况下只有S1选举计时器先抢占到锁才能成功通过测试，但是实际上S1选举计时器若没有抢占到锁，发生和上述同样的问题，难怪实验hint中说time.Timer比较tricky to use，所以最终实现改为time.Time记录上一次心跳时间，用当前时间来比对。
 
    <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2002.28.32.png"  style="zoom:40%;" />
 
@@ -112,9 +114,16 @@
 
 ### 3B
 
-1. raftState大于阈值时持久化server的data和记录客户端最新序列号的table，以及sever启动时读取已保存的data和table，that's it。
+1. raftState大于阈值时持久化server的data和记录客户端最新序列号的table，以及sever启动时读取已保存的data和table。
 
-   
+2. 增加follower能够快速catch up的机制：
+
+   1）在appendentrie的RPC请求中，若回复为false（preEntry检测策略失败），立即向该follower再次发送appendentries的RPC请求，而不要等到下一次心跳时间
+
+   2）若leader更新了commitIndex，立即向其余follower发送心跳，以便follower也能够更新commitIndex
+   3）在leader发送快照的请求中，此follower可能已经落后较多条日志，在发送完日志，收到肯定回复后，立即再次向该节点发送心跳。
+
+   否则lab2能够稳定通过，而3B会超时。
 
 
 
