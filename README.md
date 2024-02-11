@@ -110,5 +110,11 @@
 
 3. client的clientId和seqno要写入Op结构体中，此操作是为了让follower的table能够同步更新，从而保证请求只会被执行一次。
 
+### 3B
+
+1. raftState大于阈值时持久化server的data和记录客户端最新序列号的table，以及sever启动时读取已保存的data和table，that's it。
+
+   
+
 
 

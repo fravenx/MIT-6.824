@@ -184,7 +184,6 @@ func (rf *Raft) SnapshotWithoutLock(index int, snapshot []byte) {
 	rf.lastIncludedTerm = rf.log[k].Term
 	rf.lastIncludedIndex = rf.log[k].Index
 	rf.currentSnapshot = snapshot
-	rf.log = rf.log[k:]
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -361,9 +360,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.votedFor = -1
 	}
 	reply.Term = rf.currentTerm
-	rf.log = []Entry{{Index: args.LastIncludedIndex, Term: args.LastIncludedTerm}}
-	rf.commitIndex = args.LastIncludedIndex
-	rf.lastApplied = args.LastIncludedIndex
+	rf.compactTo(args.LastIncludedIndex, args.LastIncludedTerm)
 	//Debug(dTrace, "S%d getInstallSnapshot set lastApplied = %d ", rf.me, args.LastIncludedIndex)
 	rf.installSnapshotMsg = ApplyMsg{CommandValid: false,
 		Snapshot:      args.Snapshot,
@@ -498,6 +495,26 @@ func (rf *Raft) lastLogTerm() int {
 
 }
 
+func (rf *Raft) cloneEntry(entries []Entry) []Entry {
+	cloned := make([]Entry, len(entries))
+	copy(cloned, entries)
+	return cloned
+}
+
+func (rf *Raft) compactTo(index int, term int) {
+	suffix := make([]Entry, 0)
+	suffixStart := index + 1
+	if suffixStart <= rf.lastLogIndex() {
+		suffixStart = suffixStart - rf.log[0].Index
+		suffix = rf.log[suffixStart:]
+	}
+
+	rf.log = append(make([]Entry, 1), suffix...)
+	rf.log[0] = Entry{Index: index, Term: term}
+	rf.lastApplied = index
+	rf.commitIndex = index
+}
+
 func (rf *Raft) checkLog(candidateTerm, candidateIndex int) bool {
 	if rf.lastLogTerm() < candidateTerm {
 		return true
@@ -539,7 +556,7 @@ func (rf *Raft) initMatchIndex() {
 	}
 }
 
-func (rf *Raft) updateCommitIndex() {
+func (rf *Raft) updateCommitIndex() bool {
 	x := rf.commitIndex + 1
 	for {
 		_, exist := rf.getByIndex(x)
@@ -564,13 +581,15 @@ func (rf *Raft) updateCommitIndex() {
 	x--
 	k, _ := rf.getByIndex(x)
 	if rf.log[k].Term != rf.currentTerm {
-		return
+		return false
 	}
 	if x > rf.commitIndex {
 		//Debug(dLog, "S%d update commitIndex to %d", rf.me, x)
 		rf.commitIndex = x
 		rf.applyCond.Signal()
+		return true
 	}
+	return false
 }
 
 func (rf *Raft) ticker() {
@@ -702,44 +721,88 @@ func (rf *Raft) sendHeartbeat() {
 			if !ok {
 				return
 			}
-			rf.mu.Lock()
-			defer rf.mu.Unlock()
-			if reply.Term > rf.currentTerm {
-				rf.currentTerm = reply.Term
-				rf.state = FOLLOWER
-				rf.votedFor = -1
-				rf.persist()
-				return
-			}
-			if rf.currentTerm != args.Term {
-				return
-			}
-			k, _ = rf.getByIndex(rf.nextIndex[i] - 1)
-			if args.PrevLogIndex != rf.log[k].Index {
-				return
-			}
-			if reply.Success == false {
-				if reply.FirstIndex == -1 {
-					j := k
-					for j >= 0 && rf.log[j].Term == args.PrevLogTerm {
-						j--
-					}
-					rf.nextIndex[i] = int(math.Min(float64(rf.nextIndex[i]), float64(j+1)))
-
-				} else {
-					rf.nextIndex[i] = int(math.Min(float64(reply.FirstIndex), float64(rf.nextIndex[i])))
-
-				}
-				//Debug(dLog, "S%d set nextIndex[%d] to %d", rf.me, i, rf.nextIndex[i])
-			} else {
-				if args.PrevLogIndex+len(args.Entries) > rf.matchIndex[i] {
-					rf.nextIndex[i] = args.PrevLogIndex + len(args.Entries) + 1
-					rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
-					//Debug(dLog, "S%d set matchIndex[%d] to %d", rf.me, i, rf.matchIndex[i])
-					rf.updateCommitIndex()
-				}
-			}
+			rf.handleAppendEntriesReply(i, &args, &reply)
 		}()
+	}
+}
+
+func (rf *Raft) sendHeartbeatTo(i int) {
+	rf.mu.Lock()
+	currentTerm := rf.currentTerm
+	rf.mu.Unlock()
+	args := AppendEntryArgs{}
+	reply := AppendEntryReply{}
+	args.Term = currentTerm
+	args.LeaderId = rf.me
+	rf.mu.Lock()
+
+	if rf.nextIndex[i] <= rf.lastIncludedIndex {
+		rf.mu.Unlock()
+		go rf.installSnapshot(i)
+		return
+	}
+	k, _ := rf.getByIndex(rf.nextIndex[i] - 1)
+	if rf.lastLogIndex() >= rf.nextIndex[i] && rf.lastLogTerm() == rf.currentTerm {
+		for j := k + 1; j < len(rf.log); j++ {
+			args.Entries = append(args.Entries, rf.log[j])
+		}
+		//Debug(dLog, "S%d sendAppendRpc pIndex = %d entries num = %d to S%d", rf.me, rf.log[k].Index, len(args.Entries), i)
+	} else {
+		//Debug(dLog, "S%d sendHeartBeat pIndex = %d to S%d", rf.me, rf.log[k].Index, i)
+
+	}
+	args.PrevLogIndex = rf.log[k].Index
+	args.PrevLogTerm = rf.log[k].Term
+	args.LeaderCommit = rf.commitIndex
+	rf.mu.Unlock()
+	ok := rf.sendAppendEntry(i, &args, &reply)
+	if !ok {
+		return
+	}
+	rf.handleAppendEntriesReply(i, &args, &reply)
+
+}
+
+func (rf *Raft) handleAppendEntriesReply(i int, args *AppendEntryArgs, reply *AppendEntryReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if reply.Term > rf.currentTerm {
+		rf.currentTerm = reply.Term
+		rf.state = FOLLOWER
+		rf.votedFor = -1
+		rf.persist()
+		return
+	}
+	if rf.currentTerm != args.Term {
+		return
+	}
+	k, _ := rf.getByIndex(rf.nextIndex[i] - 1)
+	if args.PrevLogIndex != rf.log[k].Index {
+		return
+	}
+	if reply.Success == false {
+		if reply.FirstIndex == -1 {
+			j := k
+			for j >= 0 && rf.log[j].Term == args.PrevLogTerm {
+				j--
+			}
+			rf.nextIndex[i] = int(math.Min(float64(rf.nextIndex[i]), float64(j+1)))
+
+		} else {
+			rf.nextIndex[i] = int(math.Min(float64(reply.FirstIndex), float64(rf.nextIndex[i])))
+
+		}
+		go rf.sendHeartbeatTo(i)
+		//Debug(dLog, "S%d set nextIndex[%d] to %d", rf.me, i, rf.nextIndex[i])
+	} else {
+		if args.PrevLogIndex+len(args.Entries) > rf.matchIndex[i] {
+			rf.nextIndex[i] = args.PrevLogIndex + len(args.Entries) + 1
+			rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
+			//Debug(dLog, "S%d set matchIndex[%d] to %d", rf.me, i, rf.matchIndex[i])
+			if rf.updateCommitIndex() {
+				go rf.sendHeartbeat()
+			}
+		}
 	}
 }
 
@@ -770,9 +833,15 @@ func (rf *Raft) installSnapshot(i int) {
 	if rf.currentTerm != args.Term {
 		return
 	}
-	rf.nextIndex[i] = int(math.Max(float64(rf.nextIndex[i]), float64(args.LastIncludedIndex))) + 1
-	rf.matchIndex[i] = rf.nextIndex[i] - 1
-
+	if args.LastIncludedIndex > rf.matchIndex[i] {
+		rf.nextIndex[i] = int(math.Max(float64(rf.nextIndex[i]), float64(args.LastIncludedIndex))) + 1
+		rf.matchIndex[i] = rf.nextIndex[i] - 1
+		//Debug(dLog, "S%d set matchIndex[%d] to %d", rf.me, i, rf.matchIndex[i])
+		go rf.sendHeartbeatTo(i)
+		if rf.updateCommitIndex() {
+			go rf.sendHeartbeat()
+		}
+	}
 }
 
 func (rf *Raft) applier() {
@@ -791,32 +860,33 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- msg
 			rf.mu.Lock()
-		} else if rf.lastApplied < rf.commitIndex {
-			i := rf.lastApplied + 1
-			j := rf.commitIndex
-			msgs := make([]ApplyMsg, 0)
-			for ; i <= j; i++ {
-				index, _ := rf.getByIndex(i)
-				i := i
-				msg := ApplyMsg{
-					CommandIndex: i,
-					Command:      rf.log[index].Command,
-					CommandValid: true,
-				}
-				msgs = append(msgs, msg)
-			}
-			rf.lastApplied = j
+		} else if entries := rf.newCommittedEntries(); len(entries) > 0 {
+			rf.lastApplied = entries[len(entries)-1].Index
 			rf.mu.Unlock()
-			for _, msg := range msgs {
-				Debug(dCommit, "S%d apply %v", rf.me, msg)
-				rf.applyCh <- msg
+			for _, entry := range entries {
+				rf.applyCh <- ApplyMsg{CommandValid: true, Command: entry.Command, CommandIndex: entry.Index}
 			}
+
 			rf.mu.Lock()
 		} else {
 			rf.applyCond.Wait()
 		}
 	}
 
+}
+
+func (rf *Raft) newCommittedEntries() []Entry {
+	i := rf.lastApplied + 1 - rf.log[0].Index
+	j := rf.commitIndex + 1 - rf.log[0].Index
+
+	Debug(dTrace, "rf.lastApplied = %d", rf.lastApplied)
+	Debug(dTrace, "rf.log[0].Index = %d", rf.log[0].Index)
+	Debug(dTrace, "i = %d, j = %d", i, j)
+	if i >= j {
+		return nil
+	}
+
+	return rf.cloneEntry(rf.log[i:j])
 }
 
 // the service or tester wants to create a Raft server. the ports
