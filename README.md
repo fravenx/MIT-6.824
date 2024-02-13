@@ -28,6 +28,10 @@
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3b.png" style="zoom:50%;" />
 
+### 4A(500次0fail)
+
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/4a.png" style="zoom:50%;" />
+
 
 
 
@@ -121,9 +125,16 @@
    1）在appendentrie的RPC请求中，若回复为false（preEntry检测策略失败），立即向该follower再次发送appendentries的RPC请求，而不要等到下一次心跳时间
 
    2）若leader更新了commitIndex，立即向其余follower发送心跳，以便follower也能够更新commitIndex
+
    3）在leader发送快照的请求中，此follower可能已经落后较多条日志，在发送完日志，收到肯定回复后，立即再次向该节点发送心跳。
 
    否则lab2能够稳定通过，而3B会超时。
+
+### 4A
+
+1. Rebalance函数的设计:
+
+   用一个map记录gid到shard的映射，统计map中每个gid对应的shard数组的最大值和最小值，只要相差大于1时，不断移动最大shard数组中部分元素到最小shard数组中，并更新config.Shards，当gid为0的shard数组不为空时，优先清空gid为0的shard数组(gid非空)
 
 
 

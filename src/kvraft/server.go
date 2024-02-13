@@ -217,7 +217,7 @@ func (kv *KVServer) execute() {
 				}
 				kv.table[clientId] = op.SeqNo
 				_, ok := kv.waitCh[clientId]
-				if ok && kv.table[clientId] == op.SeqNo {
+				if ok {
 					select {
 					case kv.waitCh[clientId] <- op:
 					default:

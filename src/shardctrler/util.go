@@ -1,9 +1,8 @@
-package raft
+package shardctrler
 
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -64,12 +63,4 @@ func Debug(topic logTopic, format string, a ...interface{}) {
 		format = prefix + format
 		log.Printf(format, a...)
 	}
-}
-
-func electionTime() int {
-	return ELECTIONTIMEOUT + (rand.Int() % 300)
-}
-
-func cmpCommand(e1, e2 Entry) bool {
-	return e1.Index == e2.Index && e1.Term == e2.Term
 }

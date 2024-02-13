@@ -29,13 +29,17 @@ type Config struct {
 }
 
 const (
-	OK = "OK"
+	OK       = "OK"
+	TimeOut  = "TimeOut"
+	ErrWrong = "ErrWrong"
 )
 
 type Err string
 
 type JoinArgs struct {
-	Servers map[int][]string // new GID -> servers mappings
+	Servers  map[int][]string // new GID -> servers mappings
+	ClientId int64
+	SeqNo    int64
 }
 
 type JoinReply struct {
@@ -44,7 +48,9 @@ type JoinReply struct {
 }
 
 type LeaveArgs struct {
-	GIDs []int
+	GIDs     []int
+	ClientId int64
+	SeqNo    int64
 }
 
 type LeaveReply struct {
@@ -53,8 +59,10 @@ type LeaveReply struct {
 }
 
 type MoveArgs struct {
-	Shard int
-	GID   int
+	Shard    int
+	GID      int
+	ClientId int64
+	SeqNo    int64
 }
 
 type MoveReply struct {
@@ -63,11 +71,65 @@ type MoveReply struct {
 }
 
 type QueryArgs struct {
-	Num int // desired config number
+	Num      int // desired config number
+	ClientId int64
+	SeqNo    int64
 }
 
 type QueryReply struct {
 	WrongLeader bool
 	Err         Err
 	Config      Config
+}
+
+func cmpCommand(op1, op2 Op) bool {
+	if op1.ClientId == op2.ClientId && op1.SeqNo == op2.SeqNo {
+		return true
+	}
+	return false
+}
+
+func copyConfig(config Config) Config {
+	cp := Config{}
+	cp.Num = config.Num
+	cp.Shards = [10]int{}
+	for i, v := range config.Shards {
+		cp.Shards[i] = v
+	}
+	cp.Groups = map[int][]string{}
+	for key, val := range config.Groups {
+		newSlice := make([]string, len(val))
+		for i, v := range val {
+			newSlice[i] = v
+		}
+		cp.Groups[key] = newSlice
+	}
+	return cp
+}
+
+func maxmininMap(m map[int][]int, gs []int) (int, int, int, int) {
+	maxv := -1
+	maxi := 0
+	minv := int(1e8)
+	mini := 0
+	for _, gid := range gs {
+		l := len(m[gid])
+		if l > maxv {
+			maxv = l
+			maxi = gid
+		}
+		if l < minv {
+			minv = l
+			mini = gid
+		}
+	}
+
+	if len(m[0]) > 0 {
+		if minv != int(1e8) {
+			return 0, len(m[0]) * 2, mini, 0
+		} else {
+			return 0, 0, 0, 0
+		}
+	}
+	return maxi, maxv, mini, minv
 }

@@ -314,7 +314,7 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 		size := len(args.Entries)
 		for i := 1; i <= size; i++ {
 			//Debug(dLog2, "S%d add %v int log", rf.me, args.Entries[i-1])
-			if i+k < len(rf.log) && rf.log[i+k] != args.Entries[i-1] {
+			if i+k < len(rf.log) && !cmpCommand(rf.log[i+k], args.Entries[i-1]) {
 				rf.log = rf.log[:i+k]
 			}
 			if len(rf.log) <= i+k {
