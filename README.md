@@ -2,35 +2,55 @@
 
 ### lab1(10次)
 
-<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2016.14.53.png"  style="zoom:30%;" />
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/lab1.png"  style="zoom:30%;" />
+
+
 
 ### 2A(2000次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/%E6%88%AA%E5%B1%8F2023-09-07%2018.24.32.png"  style="zoom:50%;" />
 
+
+
 ### 2B(10000次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-15%2013.38.30.png"  style="zoom:50%;" />
+
+
 
 ### 2C(10000次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-16%2000.20.43.png"  style="zoom:50%;" />
 
+
+
 ### 2D(10000次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-17%2019.34.39.png"  style="zoom:50%;" />
+
+
 
 ### 3A(500次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3a1.png" style="zoom:50%;" />
 
+
+
 ### 3B(500次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/3b.png" style="zoom:50%;" />
 
+
+
 ### 4A(500次0fail)
 
 <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/4a.png" style="zoom:50%;" />
+
+
+
+### 4B + 2Challenges(500次0fail)
+
+<img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/4b.png" style="zoom:50%;" />
 
 
 
@@ -134,7 +154,39 @@
 
 1. Rebalance函数的设计:
 
-   用一个map记录gid到shard的映射，统计map中每个gid对应的shard数组的最大值和最小值，只要相差大于1时，不断移动最大shard数组中部分元素到最小shard数组中，并更新config.Shards，当gid为0的shard数组不为空时，优先清空gid为0的shard数组(gid非空)
+   用一个map记录gid到shard的映射，统计map中每个gid对应的shard数组的最大值和最小值，只要相差大于1时，不断移动最大shard数组中部分元素到最小shard数组中，并更新config.Shards，当gid为0的shard数组不为空时，优先清空gid为0的shard数组(gid非0)
 
+### 4B + 2challenges
 
+1. 如何更新配置：
+
+   单独开一个协程，不断轮训shardctrler节点最新配置，写入日志，等配置从applych接收到后，保证集群组中的配置同步更新。为了保证配置one by one更新，只有leader节点的每个shard都处于正常状态时才会拉取配置。
+
+   
+
+2. 节点维护上一个配置，当前配置和每个shard的状态，在持久化时写入
+
+   
+
+3. 维护每个shard的三个状态：
+
+   1）Working 正常状态
+
+   2）Missing  上一配置有此shard，当前配置没有
+
+   3）Adding   上一配置没有此shard，当前配置有
+
+   节点收到client请求时，判断key对应的shard状态是否正常，若shard不是Working状态，则拒绝执行
+
+   
+
+4. 单独开一个协程，leader不断轮训是否有shard需要转发，由leader发送PushShardRPC，其中args包括给新集群的data，节点自身的判重数组，发送给该gid的shards数组，目标集群收到该rpc请求后，由leader负责写入日志，在applych中收到后，置相关shards为正常状态，更新判重数组table和数据data，还要保证由配置变更由集群a发送给集群b的PushShardRPC只会被执行一次，具体方法是若rpc的Num与目标集群节点配置Num相等且leader相关shard状态为不可用时，则该RPC还未被执行过，写入日志，否则不再执行。当PushShardRPC请求完成后，为了清除源集群中不必要的shards，目标集群发送DeleteShardRPC，以便源集群进行垃圾回收
+
+   
+
+5. 源集群收到DeleteShardRPC后，由leader写入日志，待从applych收到后，清除属于不必要shard的键值对，并置相关shard状态为正常，此RPC只要对比Num即可，不必担心被多次执行的问题，如果想要判重，方法与PushShardRPC相似。
+
+   
+
+6. 注意写入日志中结构体的设计，不要有多余的无关变量（比如DeleteShardRPC中可以包含shard相关的key数组，而不要存shard相关的key，value键值对），否则challenge1会无法通过。
 

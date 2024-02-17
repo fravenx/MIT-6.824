@@ -53,7 +53,8 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
-
+	IsLeader     bool
+	Term         int
 	// For 2D:
 	SnapshotValid bool
 	Snapshot      []byte
@@ -865,13 +866,15 @@ func (rf *Raft) applier() {
 					CommandIndex: i,
 					Command:      rf.log[index].Command,
 					CommandValid: true,
+					IsLeader:     rf.state == LEADER,
+					Term:         rf.currentTerm,
 				}
 				msgs = append(msgs, msg)
 			}
 			rf.lastApplied = j
 			rf.mu.Unlock()
 			for _, msg := range msgs {
-				Debug(dCommit, "S%d apply %v", rf.me, msg)
+				//Debug(dCommit, "S%d apply %v", rf.me, msg)
 				rf.applyCh <- msg
 			}
 			rf.mu.Lock()

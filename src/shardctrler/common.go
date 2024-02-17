@@ -29,9 +29,10 @@ type Config struct {
 }
 
 const (
-	OK       = "OK"
-	TimeOut  = "TimeOut"
-	ErrWrong = "ErrWrong"
+	OK            = "OK"
+	TimeOut       = "TimeOut"
+	ErrWrong      = "ErrWrong"
+	ErrNotApplied = "ErrNotApplied"
 )
 
 type Err string

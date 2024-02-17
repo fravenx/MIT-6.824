@@ -16,7 +16,7 @@ type ShardCtrler struct {
 	applyCh chan raft.ApplyMsg
 
 	table   map[int64]int64
-	waitCh  map[int64]chan Op
+	waitCh  map[int]chan Err
 	configs []Config // indexed by config num
 }
 
@@ -48,33 +48,23 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	command.Servers = args.Servers
 	command.SeqNo = args.SeqNo
 	command.ClientId = args.ClientId
-	_, _, isLeader := sc.rf.Start(command)
+	index, _, isLeader := sc.rf.Start(command)
 	if !isLeader {
 		reply.WrongLeader = true
 		return
 	}
+	ch := make(chan Err, 1)
 
 	sc.mu.Lock()
-	ch := make(chan Op, 1)
-	sc.waitCh[args.ClientId] = ch
+	sc.waitCh[index] = ch
 	sc.mu.Unlock()
 
 	select {
-	case op := <-ch:
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
-		if cmpCommand(op, command) {
-			reply.Err = OK
-			return
-		} else {
-			reply.Err = ErrWrong
-			return
-		}
-	case <-time.After(500 * time.Millisecond):
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
+	case res := <-ch:
+		reply.Err = res
+		return
+
+	case <-time.After(100 * time.Millisecond):
 		reply.Err = TimeOut
 		return
 	}
@@ -94,33 +84,23 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	command.GIDs = args.GIDs
 	command.SeqNo = args.SeqNo
 	command.ClientId = args.ClientId
-	_, _, isLeader := sc.rf.Start(command)
+	index, _, isLeader := sc.rf.Start(command)
 	if !isLeader {
 		reply.WrongLeader = true
 		return
 	}
 
+	ch := make(chan Err, 1)
 	sc.mu.Lock()
-	ch := make(chan Op, 1)
-	sc.waitCh[args.ClientId] = ch
+	sc.waitCh[index] = ch
 	sc.mu.Unlock()
 
 	select {
-	case op := <-ch:
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
-		if cmpCommand(op, command) {
-			reply.Err = OK
-			return
-		} else {
-			reply.Err = ErrWrong
-			return
-		}
-	case <-time.After(500 * time.Millisecond):
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
+	case res := <-ch:
+		reply.Err = res
+		return
+
+	case <-time.After(100 * time.Millisecond):
 		reply.Err = TimeOut
 		return
 	}
@@ -141,86 +121,82 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	command.Shard = args.Shard
 	command.SeqNo = args.SeqNo
 	command.ClientId = args.ClientId
-	_, _, isLeader := sc.rf.Start(command)
+	index, _, isLeader := sc.rf.Start(command)
 	if !isLeader {
 		reply.WrongLeader = true
 		return
 	}
-
+	ch := make(chan Err, 1)
 	sc.mu.Lock()
-	ch := make(chan Op, 1)
-	sc.waitCh[args.ClientId] = ch
+	sc.waitCh[index] = ch
 	sc.mu.Unlock()
 
 	select {
-	case op := <-ch:
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
-		if cmpCommand(op, command) {
-			reply.Err = OK
-			return
-		} else {
-			reply.Err = ErrWrong
-			return
-		}
-	case <-time.After(500 * time.Millisecond):
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
+	case res := <-ch:
+		reply.Err = res
+		return
+	case <-time.After(100 * time.Millisecond):
 		reply.Err = TimeOut
 		return
 	}
 }
 
 func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
+	//if _, isleader := sc.rf.GetState(); isleader == false {
+	//	reply.Err = ErrWrong
+	//	return
+	//}
 	sc.mu.Lock()
-	if args.SeqNo <= sc.table[args.ClientId] {
-		if args.Num == -1 || args.Num >= len(sc.configs) {
-			reply.Config = sc.configs[len(sc.configs)-1]
-
-		} else {
-			reply.Config = sc.configs[args.Num]
-		}
+	if args.Num >= 0 && args.Num < len(sc.configs) {
+		reply.Config = sc.configs[args.Num]
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
 	}
-
 	sc.mu.Unlock()
+
+	//	} else {
+	//		reply.Config = sc.configs[args.Num]
+	//	}
+	//	reply.Err = OK
+	//	sc.mu.Unlock()
+	//	return
+	//}
+	//
+	//sc.mu.Unlock()
 	command := Op{}
 	command.IsQuery = true
 	command.SeqNo = args.SeqNo
 	command.ClientId = args.ClientId
 	command.Num = args.Num
-	_, _, isLeader := sc.rf.Start(command)
+	index, _, isLeader := sc.rf.Start(command)
 	if !isLeader {
 		reply.WrongLeader = true
 		return
 	}
-
+	ch := make(chan Err, 1)
 	sc.mu.Lock()
-	ch := make(chan Op, 1)
-	sc.waitCh[args.ClientId] = ch
+	sc.waitCh[index] = ch
 	sc.mu.Unlock()
 
 	select {
-	case op := <-ch:
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
-		if cmpCommand(op, command) {
-			reply.Config = op.Config
-			reply.Err = OK
-			return
-		} else {
-			reply.Err = ErrWrong
+	case res := <-ch:
+		if res == OK {
+			sc.mu.Lock()
+			if args.Num == -1 || args.Num >= len(sc.configs) {
+				reply.Config = sc.configs[len(sc.configs)-1]
+
+			} else {
+				reply.Config = sc.configs[args.Num]
+			}
+			reply.Err = res
+			sc.mu.Unlock()
 			return
 		}
-	case <-time.After(500 * time.Millisecond):
-		sc.mu.Lock()
-		delete(sc.waitCh, args.ClientId)
-		sc.mu.Unlock()
+		reply.Err = res
+		return
+
+	case <-time.After(100 * time.Millisecond):
 		reply.Err = TimeOut
 		return
 	}
@@ -333,81 +309,6 @@ func (sc *ShardCtrler) isRepeated(clientId, seqNo int64) bool {
 	return false
 }
 
-func (sc *ShardCtrler) execute() {
-	for {
-		msg := <-sc.applyCh
-		op := msg.Command.(Op)
-		sc.mu.Lock()
-		if op.IsQuery {
-			clientId := op.ClientId
-			if op.SeqNo > sc.table[clientId] {
-				sc.table[clientId] = op.SeqNo
-			}
-			_, ok := sc.waitCh[clientId]
-			if ok && sc.table[clientId] == op.SeqNo {
-				if op.Num == -1 || op.Num >= len(sc.configs) {
-					op.Config = sc.configs[len(sc.configs)-1]
-
-				} else {
-					op.Config = sc.configs[op.Num]
-				}
-				select {
-				case sc.waitCh[clientId] <- op:
-				default:
-				}
-			}
-		} else if op.IsJoin {
-			if sc.isRepeated(op.ClientId, op.SeqNo) {
-				sc.mu.Unlock()
-				continue
-			}
-			sc.doJoin(op)
-			sc.table[op.ClientId] = op.SeqNo
-			_, ok := sc.waitCh[op.ClientId]
-			if ok {
-				select {
-				case sc.waitCh[op.ClientId] <- op:
-				default:
-				}
-			}
-		} else if op.IsLeave {
-			if sc.isRepeated(op.ClientId, op.SeqNo) {
-				sc.mu.Unlock()
-				continue
-			}
-			sc.doLeave(op)
-			sc.table[op.ClientId] = op.SeqNo
-			_, ok := sc.waitCh[op.ClientId]
-			if ok {
-				select {
-				case sc.waitCh[op.ClientId] <- op:
-				default:
-				}
-			}
-
-		} else if op.IsMove {
-			if sc.isRepeated(op.ClientId, op.SeqNo) {
-				sc.mu.Unlock()
-				continue
-			}
-			sc.doMove(op)
-			sc.table[op.ClientId] = op.SeqNo
-			_, ok := sc.waitCh[op.ClientId]
-			if ok {
-				select {
-				case sc.waitCh[op.ClientId] <- op:
-				default:
-				}
-			}
-
-		}
-
-		sc.mu.Unlock()
-
-	}
-
-}
-
 // servers[] contains the ports of the set of
 // servers that will cooperate via Raft to
 // form the fault-tolerant shardctrler service.
@@ -424,7 +325,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 	sc.rf = raft.Make(servers, me, persister, sc.applyCh)
 
 	sc.table = make(map[int64]int64)
-	sc.waitCh = make(map[int64]chan Op)
+	sc.waitCh = make(map[int]chan Err)
 	go sc.execute()
 	return sc
 }

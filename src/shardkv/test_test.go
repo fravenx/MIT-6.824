@@ -166,6 +166,7 @@ func TestSnapshot(t *testing.T) {
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
+	fmt.Println("EVENT: join1")
 
 	cfg.join(1)
 	cfg.join(2)
@@ -180,7 +181,6 @@ func TestSnapshot(t *testing.T) {
 
 	cfg.leave(1)
 	cfg.join(0)
-
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(20)

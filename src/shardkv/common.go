@@ -10,10 +10,13 @@ package shardkv
 //
 
 const (
-	OK             = "OK"
-	ErrNoKey       = "ErrNoKey"
-	ErrWrongGroup  = "ErrWrongGroup"
-	ErrWrongLeader = "ErrWrongLeader"
+	OK               = "OK"
+	ErrWrongGroup    = "ErrWrongGroup"
+	ErrWrongLeader   = "ErrWrongLeader"
+	ErrNotApplied    = "ErrNotApplied"
+	TimeOut          = "Timeout"
+	ErrSHARDNOTREADY = "ShardNotReady"
+	ErrRepeated      = "ErrRepeated"
 )
 
 type Err string
@@ -21,12 +24,11 @@ type Err string
 // Put or Append
 type PutAppendArgs struct {
 	// You'll have to add definitions here.
-	Key   string
-	Value string
-	Op    string // "Put" or "Append"
-	// You'll have to add definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	Key      string
+	Value    string
+	Op       string // "Put" or "Append"
+	ClientId int64
+	SeqNo    int64
 }
 
 type PutAppendReply struct {
@@ -34,11 +36,45 @@ type PutAppendReply struct {
 }
 
 type GetArgs struct {
-	Key string
-	// You'll have to add definitions here.
+	Key      string
+	ClientId int64
+	SeqNo    int64
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type PushShardArgs struct {
+	Num    int
+	Data   map[string]string
+	Shards []int
+	Table  map[int64]int64
+	Dst    []string
+	Src    []string
+}
+
+type PushShardReply struct {
+	Err Err
+}
+
+type DeleteShardArgs struct {
+	Num    int
+	Keys   []string
+	Shards []int
+	Dst    []string
+}
+
+type DeleteShardReply struct {
+	Err Err
+}
+
+func copyTable(m1 map[int64]int64) map[int64]int64 {
+	res := make(map[int64]int64)
+	for k, v := range m1 {
+		res[k] = v
+	}
+	return res
+
 }

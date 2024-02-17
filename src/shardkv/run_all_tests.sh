@@ -1,0 +1,1 @@
+python3 dstest --iter 500 --workers 30 --timeout 60 --output out.log TestStaticShards  TestJoinLeave TestSnapshot TestMissChange TestConcurrent1 TestConcurrent2 TestConcurrent3 TestUnreliable1 TestUnreliable2 TestUnreliable3 TestChallenge1Delete TestChallenge2Unaffected TestChallenge2Partial
