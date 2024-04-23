@@ -98,9 +98,6 @@
 
 3. leader发送AppendEntry的RPC请求收到reply.Success为真后，在更新matchIndex不能直接设置为Len(log[])，而是prevLogIndex + len(entries[])，因为在发送rpc请求后，leader中的log[]长度可能会改变
 
-4. 遇到一个很微妙的bug，发生在系统刚启动时，观察日志发现节点S1刚刚选举计时器到达，紧接着4ms后收到节点S2的RequestVote的请求，按逻辑上应该选举计时器到达后，S1节点成为Candidate，增加自己Term，然后拒绝掉节点S2的RequestVote请求。但实际情况是由于我这里在选举计时器到达时先输出了一条日志，导致有点微小的延时，处理RequestVote的RPC请求逻辑先获得锁，并grant vote，节点S2变成leader，并在log[]中加了一条命令[101]，节点S1的term变成2，然后选举计时器逻辑获得锁，节点S1的term变为3，发送RequestVote请求，节点S2收到后，发现arg.term比自己大，于是变为follower，但由于日志完整性检查，并不会grant vote,由于网络中还有节点S0存在并给S1 grant vote，节点S1成为leader，但由于命令[101]在节点S2中，致使这条命令一直没有被commit,最后fail to reach agreement，这种情况比较少见，较小概率发生，我将选举计时器超时后输出日志的代码放入在获取互斥锁之后应该可以解决。这看似是可行，但是我又跑了2000遍测试出现一次失败，观察日志发现是上述情况没有4ms的延迟，S2的RequestVote请求到达S1和S1选举计时器超时同时发生，这种情况下只有S1选举计时器先抢占到锁才能成功通过测试，但是实际上S1选举计时器若没有抢占到锁，发生和上述同样的问题，难怪实验hint中说time.Timer比较tricky to use，所以最终实现改为time.Time记录上一次心跳时间，用当前时间来比对。
-
-   <img src="https://github.com/fravenx/oss/blob/master/img/mit6.824/%E6%88%AA%E5%B1%8F2023-09-13%2002.28.32.png"  style="zoom:40%;" />
 
 ### 2C
 
